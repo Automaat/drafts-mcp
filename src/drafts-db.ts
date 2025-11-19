@@ -74,11 +74,7 @@ export class DraftsDatabase {
     `;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [
-        this.dbPath,
-        '-json',
-        query,
-      ]);
+      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
 
       const results = JSON.parse(stdout);
 
@@ -105,11 +101,7 @@ export class DraftsDatabase {
     `;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [
-        this.dbPath,
-        '-json',
-        query,
-      ]);
+      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
 
       const results = JSON.parse(stdout);
 
@@ -140,11 +132,7 @@ export class DraftsDatabase {
     `;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [
-        this.dbPath,
-        '-json',
-        query,
-      ]);
+      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
 
       const results = JSON.parse(stdout);
 

@@ -55,10 +55,7 @@ const SearchDraftsSchema = z.object({
 });
 
 const GetAllDraftsSchema = z.object({
-  folder: z
-    .enum(['inbox', 'archive', 'trash', 'all'])
-    .optional()
-    .describe('Filter by folder'),
+  folder: z.enum(['inbox', 'archive', 'trash', 'all']).optional().describe('Filter by folder'),
   flagged: z.boolean().optional().describe('Filter by flagged status'),
 });
 
