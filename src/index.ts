@@ -140,7 +140,7 @@ class DraftsMCPServer {
         },
         {
           name: 'get_draft',
-          description: 'Retrieve a draft by its UUID',
+          description: 'Retrieve a draft by its UUID (reads directly from local database)',
           inputSchema: {
             type: 'object',
             properties: {
@@ -255,13 +255,17 @@ class DraftsMCPServer {
           }
 
           case 'get_draft': {
+            // PATCHED: Use direct database access instead of URL callback
             const args = GetDraftSchema.parse(request.params.arguments);
-            const draft = await this.draftsClient.getDraft(args.uuid);
+            const content = await this.draftsDb.getDraftContent(args.uuid);
+            if (content === null) {
+              throw new Error(`Draft not found: ${args.uuid}`);
+            }
             return {
               content: [
                 {
                   type: 'text',
-                  text: JSON.stringify(draft, null, 2),
+                  text: content,
                 },
               ],
             };
@@ -351,7 +355,7 @@ class DraftsMCPServer {
           uri: 'draft://uuid/{uuid}',
           name: 'Draft by UUID',
           description: 'Retrieve a specific draft by its UUID',
-          mimeType: 'application/json',
+          mimeType: 'text/plain',
         },
       ],
     }));
@@ -365,15 +369,19 @@ class DraftsMCPServer {
         throw new Error(`Invalid resource URI: ${uri}`);
       }
 
+      // PATCHED: Use direct database access instead of URL callback
       const uuid = match[1];
-      const draft = await this.draftsClient.getDraft(uuid);
+      const content = await this.draftsDb.getDraftContent(uuid);
+      if (content === null) {
+        throw new Error(`Draft not found: ${uuid}`);
+      }
 
       return {
         contents: [
           {
             uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(draft, null, 2),
+            mimeType: 'text/plain',
+            text: content,
           },
         ],
       };
@@ -398,3 +406,9 @@ server.start().catch((error) => {
   console.error('Failed to start server:', error);
   process.exit(1);
 });
+
+
+
+
+
+
