@@ -59,10 +59,16 @@ export class DraftsDatabase {
       whereClause = 'WHERE ' + conditions.join(' AND ');
     }
 
+    // PATCHED: Extract title from first line of ZCONTENT since ZTITLE is often empty
+    // Drafts displays the first line as the title in its UI
     const query = `
       SELECT
         ZUUID as uuid,
-        ZTITLE as title,
+        CASE 
+          WHEN ZTITLE IS NOT NULL AND ZTITLE != '' THEN ZTITLE
+          WHEN INSTR(ZCONTENT, CHAR(10)) > 0 THEN SUBSTR(ZCONTENT, 1, INSTR(ZCONTENT, CHAR(10)) - 1)
+          ELSE ZCONTENT
+        END as title,
         ZCACHED_TAGS as tags,
         ZCREATED_AT as createdAt,
         ZMODIFIED_AT as modifiedAt,
@@ -115,11 +121,16 @@ export class DraftsDatabase {
     }
   }
 
+  // PATCHED: Also extract title from first line in search results
   async searchDrafts(searchText: string): Promise<DraftMetadata[]> {
     const query = `
       SELECT
         ZUUID as uuid,
-        ZTITLE as title,
+        CASE 
+          WHEN ZTITLE IS NOT NULL AND ZTITLE != '' THEN ZTITLE
+          WHEN INSTR(ZCONTENT, CHAR(10)) > 0 THEN SUBSTR(ZCONTENT, 1, INSTR(ZCONTENT, CHAR(10)) - 1)
+          ELSE ZCONTENT
+        END as title,
         ZCACHED_TAGS as tags,
         ZCREATED_AT as createdAt,
         ZMODIFIED_AT as modifiedAt,
