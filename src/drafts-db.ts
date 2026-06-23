@@ -29,6 +29,13 @@ export class DraftsDatabase {
     return new Date(unixTimestamp * 1000).toISOString();
   }
 
+  // sqlite3 -json emits an empty string (not "[]") when no rows match,
+  // so guard against parsing that as JSON.
+  private parseRows(stdout: string): any[] {
+    const trimmed = stdout.trim();
+    return trimmed ? JSON.parse(trimmed) : [];
+  }
+
   async getAllDrafts(options?: {
     folder?: 'inbox' | 'archive' | 'trash' | 'all';
     flagged?: boolean;
@@ -59,10 +66,16 @@ export class DraftsDatabase {
       whereClause = 'WHERE ' + conditions.join(' AND ');
     }
 
+    // ZTITLE is usually empty; Drafts derives the display title from the first
+    // line of content, so fall back to the first line (or whole content) of ZCONTENT.
     const query = `
       SELECT
         ZUUID as uuid,
-        ZTITLE as title,
+        CASE
+          WHEN ZTITLE IS NOT NULL AND ZTITLE != '' THEN ZTITLE
+          WHEN INSTR(ZCONTENT, CHAR(10)) > 0 THEN SUBSTR(ZCONTENT, 1, INSTR(ZCONTENT, CHAR(10)) - 1)
+          ELSE ZCONTENT
+        END as title,
         ZCACHED_TAGS as tags,
         ZCREATED_AT as createdAt,
         ZMODIFIED_AT as modifiedAt,
@@ -76,9 +89,9 @@ export class DraftsDatabase {
     try {
       const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
 
-      const results = JSON.parse(stdout);
+      const results = this.parseRows(stdout);
 
-      return results.map((row: any) => ({
+      return results.map((row) => ({
         uuid: row.uuid,
         title: row.title || '',
         tags: row.tags ? row.tags.split(',').filter((t: string) => t.trim()) : [],
@@ -105,7 +118,7 @@ export class DraftsDatabase {
     try {
       const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
 
-      const results = JSON.parse(stdout);
+      const results = this.parseRows(stdout);
 
       if (results.length === 0) {
         return null;
@@ -120,10 +133,15 @@ export class DraftsDatabase {
   }
 
   async searchDrafts(searchText: string): Promise<DraftMetadata[]> {
+    // Same first-line title fallback as getAllDrafts (see comment there).
     const query = `
       SELECT
         ZUUID as uuid,
-        ZTITLE as title,
+        CASE
+          WHEN ZTITLE IS NOT NULL AND ZTITLE != '' THEN ZTITLE
+          WHEN INSTR(ZCONTENT, CHAR(10)) > 0 THEN SUBSTR(ZCONTENT, 1, INSTR(ZCONTENT, CHAR(10)) - 1)
+          ELSE ZCONTENT
+        END as title,
         ZCACHED_TAGS as tags,
         ZCREATED_AT as createdAt,
         ZMODIFIED_AT as modifiedAt,
@@ -138,9 +156,9 @@ export class DraftsDatabase {
     try {
       const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
 
-      const results = JSON.parse(stdout);
+      const results = this.parseRows(stdout);
 
-      return results.map((row: any) => ({
+      return results.map((row) => ({
         uuid: row.uuid,
         title: row.title || '',
         tags: row.tags ? row.tags.split(',').filter((t: string) => t.trim()) : [],
