@@ -4,6 +4,9 @@ node_modules/
 # Build output
 build/
 dist/
+build-mcpb-stage/
+*.mcpb
+*.tgz
 
 # Testing
 coverage/
