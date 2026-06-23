@@ -1,248 +1,227 @@
 # Drafts MCP Server
 
-MCP server for [Drafts](https://getdrafts.com) app integration, enabling Claude to interact with your Drafts notes via the Model Context Protocol.
+Lets Claude (and other AI assistants) talk to the **[Drafts](https://getdrafts.com)** app on your Mac. Create drafts, search and read your notes, append or prepend text, and run Drafts actions — all by chatting.
 
-## Features
+[![npm](https://img.shields.io/npm/v/@mskalski/drafts-mcp.svg)](https://www.npmjs.com/package/@mskalski/drafts-mcp)
+[![release](https://img.shields.io/github/v/release/Automaat/drafts-mcp.svg)](https://github.com/Automaat/drafts-mcp/releases/latest)
 
-- **Create drafts** - Create new drafts with content, tags, and optional actions
-- **Get draft** - Retrieve specific draft by UUID
-- **Get all drafts** - List all drafts with metadata (reads from local SQLite database)
-- **Search drafts** - Full-text search in local database
-- **Append/Prepend** - Add text to existing drafts
-- **Open draft** - Open draft in Drafts app
-- **Run actions** - Execute Drafts actions on text
-- **Search UI** - Open Drafts search interface with filters
+> **Works with:** Claude Desktop, Claude Code, Codex CLI, Cursor, Windsurf, VS Code.
+> **Needs:** the Drafts app on **macOS**. Nothing else — no programming required.
 
-## Requirements
+---
 
-- macOS (required for URL scheme integration)
-- [Drafts app](https://getdrafts.com) installed
-- Node.js 22+ (managed via mise)
-- [mise](https://mise.jdx.dev) for dependency management
+## Install (Claude Desktop — easiest, 2 steps)
 
-## Installation
+This is the recommended path. Takes ~2 minutes, no terminal needed.
 
-### 1. Install dependencies
+### 1. Download the installer
+
+Go to the [latest release page](https://github.com/Automaat/drafts-mcp/releases/latest) and download the file ending in **`.mcpb`** (it's near the top, called `drafts-mcp-<version>.mcpb`).
+
+### 2. Double-click the downloaded file
+
+Claude Desktop opens automatically and asks: *"Install Drafts extension?"*. Click **Install**, then enable it.
+
+> Don't have Claude Desktop yet? Get it free from [claude.com/download](https://claude.com/download).
+
+### Try it
+
+Open Claude Desktop and type:
+
+> *Create a draft titled "Shopping list" with milk, eggs, and bread.*
+
+Some other things to try:
+- *"Show me all my drafts from the inbox."*
+- *"Search my drafts for anything mentioning 'invoice'."*
+- *"Append a line to that draft with today's date."*
+
+> **Note:** for **write** actions (create / append / prepend / open / run action) the Drafts app must be **running** — they go through Drafts' URL scheme. Reading and searching work straight from the local database, even if Drafts is closed.
+
+---
+
+## Install (other AI tools)
+
+Already using Claude Code, Codex, Cursor, Windsurf, or VS Code? Pick your tool below. All paths need [Node.js 18+](https://nodejs.org) (except the standalone-binary option at the bottom).
+
+<details>
+<summary><b>Claude Code</b></summary>
+
+Same `.mcpb` file as Claude Desktop above — Claude Code accepts it too. Or install via the CLI:
 
 ```bash
-# Install mise if not already installed
-curl https://mise.run | sh
-
-# Install Node.js via mise
-mise install
-
-# Install npm packages
-npm install
+claude mcp add drafts -- npx -y @mskalski/drafts-mcp
 ```
 
-### 2. Build the project
+</details>
+
+<details>
+<summary><b>Codex CLI</b></summary>
 
 ```bash
+codex mcp add drafts -- npx -y @mskalski/drafts-mcp
+```
+
+</details>
+
+<details>
+<summary><b>Cursor / Windsurf / VS Code (Continue, Cline, Roo, ...)</b></summary>
+
+Open your client's MCP settings and add:
+
+```json
+{
+  "mcpServers": {
+    "drafts": {
+      "command": "npx",
+      "args": ["-y", "@mskalski/drafts-mcp"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><b>No Node.js installed? Use the standalone binary</b></summary>
+
+1. Download the right file from the [latest release](https://github.com/Automaat/drafts-mcp/releases/latest):
+   - **Mac (Apple Silicon, M1/M2/M3/M4):** `drafts-mcp-darwin-arm64`
+   - **Mac (Intel):** `drafts-mcp-darwin-x64`
+
+2. Make it runnable and bypass Gatekeeper (the binary isn't signed):
+   ```bash
+   chmod +x ~/Downloads/drafts-mcp-darwin-arm64
+   xattr -d com.apple.quarantine ~/Downloads/drafts-mcp-darwin-arm64
+   ```
+
+3. Point your AI tool at the binary's full path. Example for Codex:
+   ```bash
+   codex mcp add drafts -- /Users/you/Downloads/drafts-mcp-darwin-arm64
+   ```
+
+</details>
+
+<details>
+<summary><b>Run from source</b></summary>
+
+```bash
+git clone https://github.com/Automaat/drafts-mcp.git
+cd drafts-mcp
+npm install
 npm run build
 ```
 
-### 3. Configure Claude Desktop
-
-Add to `~/.config/claude/claude_desktop_config.json`:
+Then point your client at the built entry point:
 
 ```json
 {
   "mcpServers": {
     "drafts": {
       "command": "node",
-      "args": ["/Users/YOUR_USERNAME/sideprojects/drafts-mcp/build/index.js"]
+      "args": ["/absolute/path/to/drafts-mcp/build/index.js"]
     }
   }
 }
 ```
 
-Replace `/Users/YOUR_USERNAME/sideprojects/drafts-mcp` with your actual project path.
+</details>
 
-### 4. Restart Claude Desktop
+---
 
-## Usage
+## Tools
 
-Once configured, Claude can use the following tools:
+| Tool | What it does |
+| --- | --- |
+| `create_draft` | Create a new draft with content, tags, and an optional action. |
+| `get_draft` | Get a draft's full content by UUID (reads the local database). |
+| `get_all_drafts` | List all drafts with metadata, filtered by folder or flag. |
+| `search_drafts_db` | Full-text search your drafts in the local database. |
+| `append_to_draft` | Append text to an existing draft. |
+| `prepend_to_draft` | Prepend text to an existing draft. |
+| `open_draft` | Open a draft in the Drafts app by UUID or title. |
+| `run_action` | Run a named Drafts action on some text. |
+| `search_drafts` | Open the Drafts search UI with query / tag / folder filters. |
 
-### create_draft
+### Resources
 
-Create a new draft:
+- `draft://uuid/{uuid}` — retrieve a specific draft's content.
 
-```typescript
-{
-  text: "Draft content",
-  tags?: ["tag1", "tag2"],
-  action?: "Action Name",
-  folder?: "inbox" | "archive"
-}
+## How it works
+
+```
+┌─────────────┐   stdio    ┌──────────────────┐   reads    ┌────────────────────┐
+│  AI client  │ ◄────────► │   MCP server     │ ─────────► │  DraftStore.sqlite  │
+│ (Claude/    │            │  (Node, stdio)   │            │  (local database)   │
+│  Codex/...) │            └──────────────────┘            └────────────────────┘
+└─────────────┘                     │ writes via x-callback-url
+                                    ▼
+                            ┌──────────────────┐
+                            │   Drafts app     │
+                            └──────────────────┘
 ```
 
-### get_draft
+- **Reads** (`get_*`, `search_drafts_db`) query the local Drafts SQLite database directly via the system `sqlite3` CLI — works even when Drafts is closed.
+- **Writes** (`create`, `append`, `prepend`, `open`, `run_action`, `search_drafts`) use Drafts' `x-callback-url` scheme. A short-lived Express callback server on a random localhost port captures the response. Retries 3× with exponential backoff.
 
-Retrieve a draft by UUID:
+## CLI reference
 
-```typescript
-{
-  uuid: "draft-uuid-here"
-}
+```
+drafts-mcp [stdio]      Run the MCP server over stdio (default)
+drafts-mcp --help       Show help
+drafts-mcp --version    Print version
 ```
 
-### get_all_drafts
+## Requirements
 
-Get list of all drafts with metadata by reading from local database:
+- **macOS** — the server shells out to `open` for URL schemes and reads the macOS Drafts group container.
+- **[Drafts app](https://getdrafts.com)** installed (and running for write operations).
+- **Node.js 18+** — unless you use the standalone binary.
 
-```typescript
-{
-  folder?: "inbox" | "archive" | "trash" | "all",
-  flagged?: boolean
-}
-```
-
-Returns array of drafts with uuid, title, tags, timestamps, flags.
-
-### search_drafts_db
-
-Search drafts by text content in local database:
-
-```typescript
-{
-  query: "search text"
-}
-```
-
-Returns array of matching drafts.
-
-### append_to_draft
-
-Append text to existing draft:
-
-```typescript
-{
-  uuid: "draft-uuid-here",
-  text: "Text to append"
-}
-```
-
-### prepend_to_draft
-
-Prepend text to existing draft:
-
-```typescript
-{
-  uuid: "draft-uuid-here",
-  text: "Text to prepend"
-}
-```
-
-### open_draft
-
-Open draft in Drafts app:
-
-```typescript
-{
-  uuid?: "draft-uuid-here",
-  title?: "Draft Title"
-}
-```
-
-### run_action
-
-Execute a Drafts action:
-
-```typescript
-{
-  action: "Action Name",
-  text: "Text to process"
-}
-```
-
-### search_drafts
-
-Open Drafts search UI:
-
-```typescript
-{
-  query?: "search query",
-  tag?: "tag-name",
-  folder?: "inbox" | "archive" | "flagged" | "trash" | "all"
-}
-```
-
-## Resources
-
-The server exposes draft content via resources:
-
-- `draft://uuid/{uuid}` - Retrieve specific draft content
-
-## Development
-
-### Build
+## Develop
 
 ```bash
-npm run build
+mise install        # tools (node, bun)
+mise run install    # npm install
+mise run build      # tsc
+mise run test       # jest
+mise run check      # lint + format + test + version check
+mise run mcpb       # build the .mcpb bundle
+mise run binary     # build standalone macOS binaries via Bun
 ```
 
-### Watch mode
+Repo layout:
 
-```bash
-npm run watch
-```
+- `src/` — TypeScript MCP server (ESM, Node16).
+- `mcpb/manifest.json` — `.mcpb` bundle manifest.
+- `scripts/build-mcpb.mjs` — pack the `.mcpb`.
+- `scripts/build-binary.mjs` — Bun `--compile` per-target binaries.
+- `scripts/bump-version.mjs` — single source of truth for the release version.
 
-### Test
+### Releasing
 
-```bash
-npm test
-npm run test:watch
-```
-
-### Lint
-
-```bash
-npm run lint
-npm run lint:fix
-```
-
-### Format
-
-```bash
-npm run format
-npm run format:check
-```
-
-## Architecture
-
-- **Callback Server** - Express server on random port handling x-callback-url responses
-- **Drafts Client** - URL scheme wrapper with retry logic
-- **Drafts Database** - Direct SQLite access to Drafts database for querying
-- **MCP Server** - stdio transport, exposes tools and resources
-- **Retry Logic** - 3 attempts with exponential backoff
-
-## Limitations
-
-- **macOS only** - Uses `open` command for URL schemes and local database access
-- **Drafts app required** - Must be running for write operations (create, append, prepend)
-- **Read-only queries** - Database queries are read-only; modifications use URL schemes
-- **UI for search** - `search_drafts` URL scheme opens UI (use `search_drafts_db` for programmatic search)
+Run the **Release** workflow (`.github/workflows/release.yml`) via *Actions → Release → Run workflow*. It bumps every version source, tags, builds the `.mcpb` + binaries + npm tarball, publishes to npm (OIDC trusted publishing), and creates the GitHub release.
 
 ## Troubleshooting
 
 ### "Failed to query Drafts database"
 
-- Ensure Drafts app is installed
-- Check database path: `~/Library/Group Containers/GTFQ98J4YG.com.agiletortoise.Drafts/DraftStore.sqlite`
-- Verify you have read permissions to the Group Container
+- Ensure the Drafts app is installed.
+- Check the database path: `~/Library/Group Containers/GTFQ98J4YG.com.agiletortoise.Drafts/DraftStore.sqlite`.
+- Verify you have read permission for the Group Container.
 
-### "Request timed out"
+### "Request timed out" (write operations)
 
-- Ensure Drafts app is running
-- Check Drafts has permission to receive URL schemes
-- Verify callback server can bind to localhost
+- Make sure the Drafts app is **running**.
+- Confirm Drafts can receive URL schemes.
 
-### "Connection failed"
+### macOS "cannot be opened because the developer cannot be verified" (binary)
 
-- Restart Claude Desktop
-- Check MCP server config path is correct
-- Verify Node.js version with `mise current`
+- `xattr -d com.apple.quarantine /path/to/drafts-mcp-darwin-arm64`, or right-click → Open the first time.
+
+### "Connection failed" in the client
+
+- Restart the AI client.
+- Double-check the command/path in your MCP config.
 
 ## License
 

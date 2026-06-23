@@ -1,9 +1,20 @@
 {
-  "name": "drafts-mcp",
+  "name": "@mskalski/drafts-mcp",
   "version": "0.1.0",
-  "description": "MCP server for Drafts app integration",
-  "main": "build/index.js",
+  "description": "MCP server bridging Claude/Codex/Cursor to the Drafts app on macOS — create, search, append, and run actions on your drafts by chatting.",
   "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "drafts-mcp": "build/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
@@ -13,15 +24,39 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
-    "prepare": "npm run build"
+    "mcpb": "node scripts/build-mcpb.mjs",
+    "binary": "node scripts/build-binary.mjs",
+    "version:check": "node scripts/bump-version.mjs --check",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "drafts",
-    "model-context-protocol"
+    "drafts-app",
+    "notes",
+    "macos",
+    "claude",
+    "codex",
+    "cursor"
   ],
-  "author": "",
+  "author": "Marcin Skalski",
   "license": "MIT",
+  "homepage": "https://github.com/Automaat/drafts-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Automaat/drafts-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Automaat/drafts-mcp/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "express": "^5.0.0",

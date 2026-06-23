@@ -11,7 +11,31 @@ import {
 import { CallbackServer } from './callback-server.js';
 import { DraftsClient } from './drafts-client.js';
 import { DraftsDatabase } from './drafts-db.js';
+import { VERSION } from './version.js';
 import { z } from 'zod';
+
+const HELP = `drafts-mcp ${VERSION}
+
+MCP server for the Drafts app (macOS).
+
+Usage:
+  drafts-mcp [stdio]    Run the MCP server over stdio (default)
+  drafts-mcp --help     Show this help
+  drafts-mcp --version  Print version
+
+Configure your AI client to launch this command.
+Docs: https://github.com/Automaat/drafts-mcp#readme
+`;
+
+const cliArgs = process.argv.slice(2);
+if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
+  process.stdout.write(HELP);
+  process.exit(0);
+}
+if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
+  process.stdout.write(`${VERSION}\n`);
+  process.exit(0);
+}
 
 // Tool input schemas
 const CreateDraftSchema = z.object({
@@ -73,7 +97,7 @@ class DraftsMCPServer {
     this.server = new Server(
       {
         name: 'drafts-mcp',
-        version: '0.1.0',
+        version: VERSION,
       },
       {
         capabilities: {

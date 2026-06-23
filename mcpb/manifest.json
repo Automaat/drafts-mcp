@@ -1,0 +1,78 @@
+{
+  "manifest_version": "0.3",
+  "name": "drafts-mcp",
+  "display_name": "Drafts",
+  "version": "0.1.0",
+  "description": "Bridge Claude to the Drafts app on macOS — create, search, append, and run actions on your drafts.",
+  "long_description": "Connects Claude to the Drafts app on macOS. Create new drafts, read and search your existing drafts straight from the local database, append or prepend text, open drafts, and run Drafts actions — all by chatting. Requires the Drafts app installed on macOS; write operations need Drafts running so it can receive URL scheme calls.",
+  "author": {
+    "name": "Marcin Skalski"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Automaat/drafts-mcp"
+  },
+  "license": "MIT",
+  "keywords": [
+    "drafts",
+    "notes",
+    "macos",
+    "productivity"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "build/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/build/index.js"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "create_draft",
+      "description": "Create a new draft with content, tags, and an optional action."
+    },
+    {
+      "name": "get_draft",
+      "description": "Retrieve a draft's content by UUID (reads the local database)."
+    },
+    {
+      "name": "get_all_drafts",
+      "description": "List all drafts with metadata, filtered by folder or flag."
+    },
+    {
+      "name": "search_drafts_db",
+      "description": "Full-text search drafts in the local database."
+    },
+    {
+      "name": "append_to_draft",
+      "description": "Append text to an existing draft."
+    },
+    {
+      "name": "prepend_to_draft",
+      "description": "Prepend text to an existing draft."
+    },
+    {
+      "name": "open_draft",
+      "description": "Open a draft in the Drafts app by UUID or title."
+    },
+    {
+      "name": "run_action",
+      "description": "Run a named Drafts action on some text."
+    },
+    {
+      "name": "search_drafts",
+      "description": "Open the Drafts search UI with optional query/tag/folder filters."
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
