@@ -71,12 +71,26 @@ if (fs.existsSync(iconSrc)) {
   copyFile(iconSrc, path.join(stage, "icon.png"));
 }
 
-log("packing .mcpb via @anthropic-ai/mcpb");
-const result = spawnSync(
-  "npx",
-  ["--yes", "@anthropic-ai/mcpb@latest", "pack", stage, outFile],
-  { stdio: "inherit", cwd: repoRoot, shell: process.platform === "win32" },
+log("packing .mcpb via pinned @anthropic-ai/mcpb");
+// Use the version pinned in devDependencies (locked integrity) rather than
+// @latest, so releases are reproducible. `npm ci` above installs it.
+const mcpbBin = path.join(
+  repoRoot,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "mcpb.cmd" : "mcpb",
 );
+if (!fs.existsSync(mcpbBin)) {
+  console.error(
+    `[build-mcpb] ${mcpbBin} not found. Run \`npm ci\` first (it installs @anthropic-ai/mcpb).`,
+  );
+  process.exit(1);
+}
+const result = spawnSync(mcpbBin, ["pack", stage, outFile], {
+  stdio: "inherit",
+  cwd: repoRoot,
+  shell: process.platform === "win32",
+});
 if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
