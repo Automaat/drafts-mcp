@@ -338,7 +338,9 @@ class DraftsMCPServer {
         }
       } catch (error) {
         if (error instanceof z.ZodError) {
-          throw new Error(`Invalid arguments: ${error.message}`);
+          throw new Error(`Invalid arguments: ${error.message}`, {
+            cause: error,
+          });
         }
         throw error;
       }

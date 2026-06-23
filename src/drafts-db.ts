@@ -89,7 +89,9 @@ export class DraftsDatabase {
         isTrashed: row.folder === 2,
       }));
     } catch (error) {
-      throw new Error(`Failed to query Drafts database: ${error}`);
+      throw new Error(`Failed to query Drafts database: ${error}`, {
+        cause: error,
+      });
     }
   }
 
@@ -111,7 +113,9 @@ export class DraftsDatabase {
 
       return results[0].content || '';
     } catch (error) {
-      throw new Error(`Failed to query draft content: ${error}`);
+      throw new Error(`Failed to query draft content: ${error}`, {
+        cause: error,
+      });
     }
   }
 
@@ -147,7 +151,9 @@ export class DraftsDatabase {
         isTrashed: row.folder === 2,
       }));
     } catch (error) {
-      throw new Error(`Failed to search drafts: ${error}`);
+      throw new Error(`Failed to search drafts: ${error}`, {
+        cause: error,
+      });
     }
   }
 }
