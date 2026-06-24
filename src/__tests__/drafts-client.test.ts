@@ -66,6 +66,46 @@ describe('DraftsClient buildUrl encoding', () => {
   });
 });
 
+// Returns a canned x-success payload so we can assert createDraft surfaces
+// the uuid the Drafts callback hands back.
+class StubResponseClient extends DraftsClient {
+  constructor(
+    callbackServer: CallbackServer,
+    private response: Record<string, string>
+  ) {
+    super(callbackServer, { maxRetries: 1, retryDelay: 10 });
+  }
+  protected async openUrl(): Promise<Record<string, string>> {
+    return this.response;
+  }
+}
+
+describe('DraftsClient.createDraft return value', () => {
+  let callbackServer: CallbackServer;
+
+  beforeEach(async () => {
+    callbackServer = new CallbackServer();
+    await callbackServer.start();
+  });
+
+  afterEach(async () => {
+    await callbackServer.stop();
+  });
+
+  it('returns the uuid from the create callback', async () => {
+    const client = new StubResponseClient(callbackServer, { uuid: 'NEW-DRAFT-UUID' });
+    await expect(client.createDraft({ text: 'hi' })).resolves.toEqual({ uuid: 'NEW-DRAFT-UUID' });
+  });
+
+  it('returns an object with a uuid key even when the callback omits it', async () => {
+    const client = new StubResponseClient(callbackServer, {});
+    const result = await client.createDraft({ text: 'hi' });
+    // toEqual({uuid:undefined}) also matches {}, so assert the key is present.
+    expect(Object.keys(result)).toEqual(['uuid']);
+    expect(result.uuid).toBeUndefined();
+  });
+});
+
 describe('DraftsClient', () => {
   let callbackServer: CallbackServer;
   let draftsClient: DraftsClient;

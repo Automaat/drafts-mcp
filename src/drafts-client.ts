@@ -107,7 +107,7 @@ export class DraftsClient {
     tags?: string[];
     action?: string;
     folder?: 'inbox' | 'archive';
-  }): Promise<void> {
+  }): Promise<{ uuid?: string }> {
     return this.executeWithRetry(async () => {
       const { url, requestId } = this.buildUrl('create', {
         text: params.text,
@@ -116,7 +116,13 @@ export class DraftsClient {
         folder: params.folder,
       });
 
-      await this.openUrl(url, requestId);
+      // The Drafts `create` x-success callback returns the new draft's uuid.
+      // It may be absent, so extract it explicitly as string | undefined
+      // rather than relying on the Record's index signature being present.
+      const response = await this.openUrl(url, requestId);
+      const uuid: string | undefined = response.uuid;
+
+      return { uuid };
     });
   }
 

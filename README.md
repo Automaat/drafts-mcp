@@ -141,7 +141,7 @@ Then point your client at the built entry point:
 
 | Tool | What it does |
 | --- | --- |
-| `create_draft` | Create a new draft with content, tags, and an optional action. |
+| `create_draft` | Create a new draft with content, tags, and an optional action. Returns the new draft's UUID. |
 | `get_draft` | Get a draft's full content by UUID (reads the local database). |
 | `get_all_drafts` | List all drafts with metadata, filtered by folder or flag. |
 | `search_drafts_db` | Full-text search your drafts in the local database. |

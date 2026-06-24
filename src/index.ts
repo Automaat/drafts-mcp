@@ -272,9 +272,14 @@ class DraftsMCPServer {
         switch (request.params.name) {
           case 'create_draft': {
             const args = CreateDraftSchema.parse(request.params.arguments);
-            await this.draftsClient.createDraft(args);
+            const { uuid } = await this.draftsClient.createDraft(args);
             return {
-              content: [{ type: 'text', text: 'Draft created successfully' }],
+              content: [
+                {
+                  type: 'text',
+                  text: uuid ? `Draft created: ${uuid}` : 'Draft created successfully',
+                },
+              ],
             };
           }
 
