@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "drafts-mcp",
   "display_name": "Drafts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bridge Claude to the Drafts app on macOS — create, search, append, and run actions on your drafts.",
   "long_description": "Connects Claude to the Drafts app on macOS. Create new drafts, read and search your existing drafts straight from the local database, append or prepend text, open drafts, and run Drafts actions — all by chatting. Requires the Drafts app installed on macOS; write operations need Drafts running so it can receive URL scheme calls.",
   "author": {

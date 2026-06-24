@@ -1,6 +1,6 @@
 {
   "name": "@mskalski/drafts-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server bridging Claude/Codex/Cursor to the Drafts app on macOS — create, search, append, and run actions on your drafts by chatting.",
   "type": "module",
   "main": "build/index.js",
