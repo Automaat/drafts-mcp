@@ -84,9 +84,15 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json src/version.ts mcpb/manifest.json
-          # Tolerate a re-run where the version sources are already at $VERSION
-          # (e.g. recovering a release that failed after the bump commit landed).
-          git commit -m "chore(release): v$VERSION" || echo "version already at $VERSION"
+          # Skip the commit only when nothing is staged — i.e. a re-run where the
+          # version sources are already at $VERSION (recovering a release that
+          # failed after the bump commit landed). A real commit failure still
+          # fails the job rather than silently tagging the wrong commit.
+          if git diff --cached --quiet; then
+            echo "version sources already at $VERSION; skipping release commit"
+          else
+            git commit -m "chore(release): v$VERSION"
+          fi
           git tag "v$VERSION"
           git push origin HEAD:main
           git push origin "v$VERSION"
