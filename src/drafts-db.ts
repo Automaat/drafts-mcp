@@ -46,6 +46,14 @@ export class DraftsDatabase {
     return [...raw.matchAll(/ZZZ(.*?)ZZZ(?=\s|$)/g)].map((m) => m[1]).filter((t) => t.length > 0);
   }
 
+  // Escape a value for interpolation into a single-quoted SQLite string literal
+  // by doubling embedded single quotes. The sqlite3 CLI takes a raw SQL string,
+  // so every free-text value (uuid, search text) must be escaped to avoid
+  // breaking the query or allowing SQL injection.
+  private escapeSqlString(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
   async getAllDrafts(options?: {
     folder?: 'inbox' | 'archive' | 'trash' | 'all';
     flagged?: boolean;
@@ -122,7 +130,7 @@ export class DraftsDatabase {
     const query = `
       SELECT ZCONTENT as content
       FROM ZMANAGEDDRAFT
-      WHERE ZUUID = '${uuid}'
+      WHERE ZUUID = '${this.escapeSqlString(uuid)}'
     `;
 
     try {
@@ -158,8 +166,8 @@ export class DraftsDatabase {
         ZFLAGGED as isFlagged,
         ZFOLDER as folder
       FROM ZMANAGEDDRAFT
-      WHERE ZCONTENT LIKE '%${searchText.replace(/'/g, "''")}%'
-         OR ZTITLE LIKE '%${searchText.replace(/'/g, "''")}%'
+      WHERE ZCONTENT LIKE '%${this.escapeSqlString(searchText)}%'
+         OR ZTITLE LIKE '%${this.escapeSqlString(searchText)}%'
       ORDER BY ZMODIFIED_AT DESC
     `;
 

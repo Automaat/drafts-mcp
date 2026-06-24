@@ -220,5 +220,17 @@ describe('DraftsDatabase', () => {
     it('returns null for a non-existent uuid', async () => {
       expect(await db.getDraftContent('does-not-exist')).toBeNull();
     });
+
+    it('does not allow SQL injection via a quote in the uuid', async () => {
+      // Unescaped, `' OR '1'='1` makes the WHERE always true and leaks a row.
+      // Escaped, it matches a literal uuid that does not exist -> null.
+      expect(await db.getDraftContent("' OR '1'='1")).toBeNull();
+    });
+
+    it('treats a quote-bearing uuid as a literal value, not SQL', async () => {
+      expect(await db.getDraftContent("uuid-multiline' --")).toBeNull();
+      // The legitimate lookup still works after escaping.
+      expect(await db.getDraftContent('uuid-multiline')).toBe('First line title\nsecond line');
+    });
   });
 });
