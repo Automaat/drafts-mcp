@@ -30,8 +30,8 @@ describe('DraftsDatabase', () => {
         ZFOLDER INTEGER
       );
       INSERT INTO ZMANAGEDDRAFT VALUES
-        ('uuid-title', 'Explicit Title', 'Body one' || CHAR(10) || 'Body two', 'work,personal', 0, 100, 1, 0),
-        ('uuid-multiline', '', 'First line title' || CHAR(10) || 'second line', 'ideas', 0, 90, 0, 0),
+        ('uuid-title', 'Explicit Title', 'Body one' || CHAR(10) || 'Body two', 'ZZZworkZZZ ZZZpersonalZZZ', 0, 100, 1, 0),
+        ('uuid-multiline', '', 'First line title' || CHAR(10) || 'second line', 'ZZZideasZZZ', 0, 90, 0, 0),
         ('uuid-singleline', '', 'Single line only', '', 0, 80, 0, 1),
         ('uuid-empty', '', '', NULL, 0, 70, 0, 2),
         ('uuid-nulls', NULL, NULL, NULL, 0, 60, 0, 0);
@@ -103,6 +103,13 @@ describe('DraftsDatabase', () => {
       const drafts = await db.getAllDrafts();
       expect(drafts.find((d) => d.uuid === 'uuid-empty')?.tags).toEqual([]);
     });
+
+    it('parses ZZZ-wrapped tag tokens without leaking the sentinels', async () => {
+      const drafts = await db.getAllDrafts();
+      const tags = drafts.find((d) => d.uuid === 'uuid-title')!.tags;
+      expect(tags).toEqual(['work', 'personal']);
+      expect(tags.join(' ')).not.toContain('ZZZ');
+    });
   });
 
   describe('getAllDrafts filtering', () => {
@@ -142,6 +149,11 @@ describe('DraftsDatabase', () => {
       expect(results.map((d) => d.uuid)).toContain('uuid-title');
     });
 
+    it('parses ZZZ-wrapped tags in results', async () => {
+      const results = await db.searchDrafts('Explicit');
+      expect(results.find((d) => d.uuid === 'uuid-title')?.tags).toEqual(['work', 'personal']);
+    });
+
     it('returns an empty array when nothing matches', async () => {
       const results = await db.searchDrafts('zzz-no-match-zzz');
       expect(results).toEqual([]);
@@ -150,6 +162,45 @@ describe('DraftsDatabase', () => {
     it('escapes single quotes in the search text', async () => {
       const results = await db.searchDrafts("o'brien");
       expect(results).toEqual([]);
+    });
+  });
+
+  describe('parseCachedTags edge cases', () => {
+    let edgeDir: string;
+    let edgeDb: DraftsDatabase;
+
+    beforeAll(async () => {
+      edgeDir = mkdtempSync(join(tmpdir(), 'drafts-db-tags-'));
+      const p = join(edgeDir, 'DraftStore.sqlite');
+      const setup = `
+        CREATE TABLE ZMANAGEDDRAFT (
+          ZUUID TEXT, ZTITLE TEXT, ZCONTENT TEXT, ZCACHED_TAGS TEXT,
+          ZCREATED_AT REAL, ZMODIFIED_AT REAL, ZFLAGGED INTEGER, ZFOLDER INTEGER
+        );
+        INSERT INTO ZMANAGEDDRAFT VALUES
+          ('t-trailingz', '', 'x', 'ZZZTODOZZZZ', 0, 30, 0, 0),
+          ('t-multiword', '', 'x', 'ZZZread laterZZZ ZZZworkZZZ', 0, 20, 0, 0),
+          ('t-embedded', '', 'x', 'ZZZfooZZZbarZZZ', 0, 10, 0, 0);
+      `;
+      await execFileAsync('sqlite3', [p, setup]);
+      edgeDb = new DraftsDatabase(p);
+    });
+
+    afterAll(() => rmSync(edgeDir, { recursive: true, force: true }));
+
+    it('keeps a trailing uppercase Z in the tag name', async () => {
+      const drafts = await edgeDb.getAllDrafts();
+      expect(drafts.find((d) => d.uuid === 't-trailingz')?.tags).toEqual(['TODOZ']);
+    });
+
+    it('preserves spaces inside a multi-word tag', async () => {
+      const drafts = await edgeDb.getAllDrafts();
+      expect(drafts.find((d) => d.uuid === 't-multiword')?.tags).toEqual(['read later', 'work']);
+    });
+
+    it('keeps a literal ZZZ inside a tag name', async () => {
+      const drafts = await edgeDb.getAllDrafts();
+      expect(drafts.find((d) => d.uuid === 't-embedded')?.tags).toEqual(['fooZZZbar']);
     });
   });
 
