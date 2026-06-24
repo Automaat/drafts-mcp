@@ -84,7 +84,9 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json src/version.ts mcpb/manifest.json
-          git commit -m "chore(release): v$VERSION"
+          # Tolerate a re-run where the version sources are already at $VERSION
+          # (e.g. recovering a release that failed after the bump commit landed).
+          git commit -m "chore(release): v$VERSION" || echo "version already at $VERSION"
           git tag "v$VERSION"
           git push origin HEAD:main
           git push origin "v$VERSION"
@@ -118,7 +120,8 @@ jobs:
       - name: Stage release artifacts at repo root
         run: |
           cp dist/drafts-mcp.mcpb "drafts-mcp-${VERSION}.mcpb"
-          cp mskalski-drafts-mcp-*.tgz .
+          # npm pack already wrote mskalski-drafts-mcp-<version>.tgz to the repo
+          # root, so it needs no copy (cp onto itself errors with "same file").
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
