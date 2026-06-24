@@ -26,7 +26,11 @@ describe('CallbackServer', () => {
     const callbacks = server.getCallbackUrls(requestId);
 
     // Simulate success callback
-    await fetch(`${callbacks.success}?text=hello&uuid=123`);
+    const httpRes = await fetch(`${callbacks.success}?text=hello&uuid=123`);
+
+    // 204 + empty body so macOS does not flash a browser page for the callback.
+    expect(httpRes.status).toBe(204);
+    expect(await httpRes.text()).toBe('');
 
     const response = await responsePromise;
 
@@ -44,7 +48,9 @@ describe('CallbackServer', () => {
     const callbacks = server.getCallbackUrls(requestId);
 
     // Simulate error callback
-    await fetch(`${callbacks.error}?error=Something went wrong`);
+    const httpRes = await fetch(`${callbacks.error}?error=Something went wrong`);
+    expect(httpRes.status).toBe(204);
+    expect(await httpRes.text()).toBe('');
 
     const response = await responsePromise;
 
@@ -59,7 +65,9 @@ describe('CallbackServer', () => {
     const callbacks = server.getCallbackUrls(requestId);
 
     // Simulate cancel callback
-    await fetch(callbacks.cancel);
+    const httpRes = await fetch(callbacks.cancel);
+    expect(httpRes.status).toBe(204);
+    expect(await httpRes.text()).toBe('');
 
     const response = await responsePromise;
 
