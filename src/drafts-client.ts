@@ -71,7 +71,7 @@ export class DraftsClient {
   private buildUrl(
     endpoint: string,
     params: Record<string, string | string[] | boolean | undefined>
-  ): string {
+  ): { url: string; requestId: string } {
     const requestId = randomUUID();
     const callbacks = this.callbackServer.getCallbackUrls(requestId);
 
@@ -85,10 +85,10 @@ export class DraftsClient {
     return {
       url: `drafts://x-callback-url/${endpoint}?${query}`,
       requestId,
-    } as any;
+    };
   }
 
-  private async openUrl(url: string, requestId: string): Promise<Record<string, string>> {
+  protected async openUrl(url: string, requestId: string): Promise<Record<string, string>> {
     const responsePromise = this.callbackServer.registerRequest(requestId);
 
     await execFileAsync('open', [url]);
@@ -114,7 +114,7 @@ export class DraftsClient {
         tag: params.tags,
         action: params.action,
         folder: params.folder,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -124,7 +124,7 @@ export class DraftsClient {
     return this.executeWithRetry(async () => {
       const { url, requestId } = this.buildUrl('get', {
         uuid,
-      }) as any;
+      });
 
       const response = await this.openUrl(url, requestId);
 
@@ -156,7 +156,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('append', {
         uuid,
         text,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -167,7 +167,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('prepend', {
         uuid,
         text,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -182,7 +182,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('open', {
         uuid: params.uuid,
         title: params.title,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -193,7 +193,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('runAction', {
         action: actionName,
         text,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -209,7 +209,7 @@ export class DraftsClient {
         query: params.query,
         tag: params.tag,
         folder: params.folder,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
