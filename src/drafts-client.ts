@@ -1,8 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { randomUUID } from 'crypto';
-import { CallbackServer } from './callback-server.js';
-import { Draft } from './types.js';
+import { DraftsDatabase } from './drafts-db.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,17 +38,29 @@ export function encodeQueryParams(
 export interface DraftsClientConfig {
   maxRetries?: number;
   retryDelay?: number;
+  // How long to wait for a created draft to surface in the local DB, and how
+  // often to poll, before giving up and returning an undefined uuid.
+  createLookupTimeout?: number;
+  createLookupInterval?: number;
 }
 
 export class DraftsClient {
-  private callbackServer: CallbackServer;
+  private db: DraftsDatabase;
   private maxRetries: number;
   private retryDelay: number;
+  private createLookupTimeout: number;
+  private createLookupInterval: number;
+  // Serializes createDraft calls so each captures a Z_PK watermark that already
+  // reflects prior creates. Without this, two concurrent creates would share a
+  // watermark and the DB lookup could not tell their drafts apart.
+  private createChain: Promise<unknown> = Promise.resolve();
 
-  constructor(callbackServer: CallbackServer, config: DraftsClientConfig = {}) {
-    this.callbackServer = callbackServer;
+  constructor(db: DraftsDatabase, config: DraftsClientConfig = {}) {
+    this.db = db;
     this.maxRetries = config.maxRetries ?? 3;
     this.retryDelay = config.retryDelay ?? 1000;
+    this.createLookupTimeout = config.createLookupTimeout ?? 10000;
+    this.createLookupInterval = config.createLookupInterval ?? 200;
   }
 
   private async executeWithRetry<T>(
@@ -71,35 +81,39 @@ export class DraftsClient {
   private buildUrl(
     endpoint: string,
     params: Record<string, string | string[] | boolean | undefined>
-  ): { url: string; requestId: string } {
-    const requestId = randomUUID();
-    const callbacks = this.callbackServer.getCallbackUrls(requestId);
-
-    const query = encodeQueryParams({
-      ...params,
-      'x-success': callbacks.success,
-      'x-error': callbacks.error,
-      'x-cancel': callbacks.cancel,
-    });
-
-    return {
-      url: `drafts://x-callback-url/${endpoint}?${query}`,
-      requestId,
-    };
+  ): string {
+    // No x-success/x-error/x-cancel: Drafts runs the action and opens nothing,
+    // so macOS never routes an http:// callback to the default browser. Results
+    // that callers need (the new draft uuid) come from the local DB instead.
+    return `drafts://x-callback-url/${endpoint}?${encodeQueryParams(params)}`;
   }
 
-  protected async openUrl(url: string, requestId: string): Promise<Record<string, string>> {
-    const responsePromise = this.callbackServer.registerRequest(requestId);
-
+  // Fire-and-forget: hand the drafts:// URL to Drafts and return. There is no
+  // callback to await, so this resolves as soon as the URL is dispatched.
+  protected async openUrl(url: string): Promise<void> {
     await execFileAsync('open', [url]);
+  }
 
-    const response = await responsePromise;
+  // Poll the local DB until the draft Drafts just created (content matching,
+  // Z_PK above the pre-create watermark) appears, or the timeout elapses.
+  private async waitForCreatedDraft(
+    beforePk: number,
+    content: string
+  ): Promise<string | undefined> {
+    const deadline = Date.now() + this.createLookupTimeout;
 
-    if (!response.success) {
-      throw new Error(response.error || 'Unknown error from Drafts');
+    for (;;) {
+      try {
+        const uuid = await this.db.findCreatedDraftUuid(beforePk, content);
+        if (uuid) return uuid;
+      } catch {
+        // Transient DB read error while polling. Keep trying until the deadline
+        // rather than throwing — a throw here would let executeWithRetry re-fire
+        // the create and produce a duplicate draft.
+      }
+      if (Date.now() >= deadline) return undefined;
+      await new Promise((resolve) => setTimeout(resolve, this.createLookupInterval));
     }
-
-    return response.data || {};
   }
 
   async createDraft(params: {
@@ -108,74 +122,44 @@ export class DraftsClient {
     action?: string;
     folder?: 'inbox' | 'archive';
   }): Promise<{ uuid?: string }> {
-    return this.executeWithRetry(async () => {
-      const { url, requestId } = this.buildUrl('create', {
-        text: params.text,
-        tag: params.tags,
-        action: params.action,
-        folder: params.folder,
+    const task = (): Promise<{ uuid?: string }> =>
+      this.executeWithRetry(async () => {
+        const beforePk = await this.db.getMaxPk();
+
+        const url = this.buildUrl('create', {
+          text: params.text,
+          tag: params.tags,
+          action: params.action,
+          folder: params.folder,
+        });
+
+        await this.openUrl(url);
+
+        // The created draft's uuid is read back from the local DB, not a callback.
+        const uuid = await this.waitForCreatedDraft(beforePk, params.text);
+
+        return { uuid };
       });
 
-      // The Drafts `create` x-success callback returns the new draft's uuid.
-      // It may be absent, so extract it explicitly as string | undefined
-      // rather than relying on the Record's index signature being present.
-      const response = await this.openUrl(url, requestId);
-      const uuid: string | undefined = response.uuid;
-
-      return { uuid };
-    });
-  }
-
-  async getDraft(uuid: string): Promise<Draft> {
-    return this.executeWithRetry(async () => {
-      const { url, requestId } = this.buildUrl('get', {
-        uuid,
-      });
-
-      const response = await this.openUrl(url, requestId);
-
-      if (!response.text) {
-        throw new Error('No content returned from Drafts');
-      }
-
-      // Parse the response - Drafts returns various fields
-      const content = response.text || '';
-      const title = response.title || content.split('\n')[0] || '';
-      const tags = response.tags ? response.tags.split(',') : [];
-
-      return {
-        uuid,
-        title,
-        content,
-        tags,
-        createdAt: response.createdAt || '',
-        modifiedAt: response.modifiedAt || '',
-        isFlagged: response.flagged === 'true',
-        isArchived: response.archived === 'true',
-        isTrashed: response.trashed === 'true',
-      };
-    });
+    // Run after the previous create settles (success or failure), and keep the
+    // chain from rejecting so one failed create does not block the next.
+    const result = this.createChain.then(task, task);
+    this.createChain = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
   }
 
   async appendToDraft(uuid: string, text: string): Promise<void> {
     return this.executeWithRetry(async () => {
-      const { url, requestId } = this.buildUrl('append', {
-        uuid,
-        text,
-      });
-
-      await this.openUrl(url, requestId);
+      await this.openUrl(this.buildUrl('append', { uuid, text }));
     });
   }
 
   async prependToDraft(uuid: string, text: string): Promise<void> {
     return this.executeWithRetry(async () => {
-      const { url, requestId } = this.buildUrl('prepend', {
-        uuid,
-        text,
-      });
-
-      await this.openUrl(url, requestId);
+      await this.openUrl(this.buildUrl('prepend', { uuid, text }));
     });
   }
 
@@ -185,23 +169,13 @@ export class DraftsClient {
         throw new Error('Either uuid or title must be provided');
       }
 
-      const { url, requestId } = this.buildUrl('open', {
-        uuid: params.uuid,
-        title: params.title,
-      });
-
-      await this.openUrl(url, requestId);
+      await this.openUrl(this.buildUrl('open', { uuid: params.uuid, title: params.title }));
     });
   }
 
   async runAction(actionName: string, text: string): Promise<void> {
     return this.executeWithRetry(async () => {
-      const { url, requestId } = this.buildUrl('runAction', {
-        action: actionName,
-        text,
-      });
-
-      await this.openUrl(url, requestId);
+      await this.openUrl(this.buildUrl('runAction', { action: actionName, text }));
     });
   }
 
@@ -211,13 +185,13 @@ export class DraftsClient {
     folder?: 'inbox' | 'archive' | 'flagged' | 'trash' | 'all';
   }): Promise<void> {
     return this.executeWithRetry(async () => {
-      const { url, requestId } = this.buildUrl('search', {
-        query: params.query,
-        tag: params.tag,
-        folder: params.folder,
-      });
-
-      await this.openUrl(url, requestId);
+      await this.openUrl(
+        this.buildUrl('search', {
+          query: params.query,
+          tag: params.tag,
+          folder: params.folder,
+        })
+      );
     });
   }
 }

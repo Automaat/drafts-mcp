@@ -192,4 +192,48 @@ export class DraftsDatabase {
       });
     }
   }
+
+  // Core Data assigns every row a monotonically increasing integer primary key
+  // (Z_PK). Capturing the max before a create lets us identify the row Drafts
+  // inserts afterwards, without a browser-routed x-callback. Returns 0 when the
+  // table is empty (MAX over no rows is NULL).
+  async getMaxPk(): Promise<number> {
+    const query = `SELECT MAX(Z_PK) as maxPk FROM ZMANAGEDDRAFT`;
+
+    try {
+      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
+      const results = this.parseRows(stdout);
+      return results[0]?.maxPk ?? 0;
+    } catch (error) {
+      throw new Error(`Failed to read max draft id: ${error}`, {
+        cause: error,
+      });
+    }
+  }
+
+  // Find the draft Drafts created after the `afterPk` watermark. Prefer a row
+  // whose content matches exactly, but fall back to the newest row past the
+  // watermark so we still return a uuid when Drafts normalizes the stored
+  // content (e.g. a trailing newline) or a create `action` mutates it. Callers
+  // serialize creates, so within one client the only new row is the one just
+  // created. `afterPk` is a number we produced; `content` is escaped.
+  async findCreatedDraftUuid(afterPk: number, content: string): Promise<string | null> {
+    const query = `
+      SELECT ZUUID as uuid
+      FROM ZMANAGEDDRAFT
+      WHERE Z_PK > ${Math.floor(afterPk)}
+      ORDER BY (ZCONTENT = '${this.escapeSqlString(content)}') DESC, Z_PK DESC
+      LIMIT 1
+    `;
+
+    try {
+      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
+      const results = this.parseRows(stdout);
+      return results.length > 0 ? results[0].uuid : null;
+    } catch (error) {
+      throw new Error(`Failed to look up created draft: ${error}`, {
+        cause: error,
+      });
+    }
+  }
 }
