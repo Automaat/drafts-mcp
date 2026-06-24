@@ -36,6 +36,16 @@ export class DraftsDatabase {
     return trimmed ? JSON.parse(trimmed) : [];
   }
 
+  // Drafts stores ZCACHED_TAGS as space-separated ZZZ<tag>ZZZ tokens, not a
+  // comma-separated list. The space (or end of string) is the authoritative
+  // separator, so anchor the closing ZZZ to a whitespace/end boundary; keying
+  // purely off ZZZ would truncate a tag ending in Z or split a tag containing
+  // a literal ZZZ. Splitting on comma collapsed every tag into one string.
+  private parseCachedTags(raw?: string | null): string[] {
+    if (!raw) return [];
+    return [...raw.matchAll(/ZZZ(.*?)ZZZ(?=\s|$)/g)].map((m) => m[1]).filter((t) => t.length > 0);
+  }
+
   async getAllDrafts(options?: {
     folder?: 'inbox' | 'archive' | 'trash' | 'all';
     flagged?: boolean;
@@ -94,7 +104,7 @@ export class DraftsDatabase {
       return results.map((row) => ({
         uuid: row.uuid,
         title: row.title || '',
-        tags: row.tags ? row.tags.split(',').filter((t: string) => t.trim()) : [],
+        tags: this.parseCachedTags(row.tags),
         createdAt: this.convertCocoaTimestamp(row.createdAt),
         modifiedAt: this.convertCocoaTimestamp(row.modifiedAt),
         isFlagged: row.isFlagged === 1,
@@ -161,7 +171,7 @@ export class DraftsDatabase {
       return results.map((row) => ({
         uuid: row.uuid,
         title: row.title || '',
-        tags: row.tags ? row.tags.split(',').filter((t: string) => t.trim()) : [],
+        tags: this.parseCachedTags(row.tags),
         createdAt: this.convertCocoaTimestamp(row.createdAt),
         modifiedAt: this.convertCocoaTimestamp(row.modifiedAt),
         isFlagged: row.isFlagged === 1,
