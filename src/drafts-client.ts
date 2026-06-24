@@ -124,7 +124,15 @@ export class DraftsClient {
   }): Promise<{ uuid?: string }> {
     const task = (): Promise<{ uuid?: string }> =>
       this.executeWithRetry(async () => {
-        const beforePk = await this.db.getMaxPk();
+        // Read the watermark best-effort: if the DB is momentarily unreadable
+        // (e.g. a SQLite lock) we still dispatch the create and just can't
+        // report the new uuid, rather than failing the whole operation.
+        let beforePk: number | undefined;
+        try {
+          beforePk = await this.db.getMaxPk();
+        } catch {
+          beforePk = undefined;
+        }
 
         const url = this.buildUrl('create', {
           text: params.text,
@@ -134,6 +142,8 @@ export class DraftsClient {
         });
 
         await this.openUrl(url);
+
+        if (beforePk === undefined) return { uuid: undefined };
 
         // The created draft's uuid is read back from the local DB, not a callback.
         const uuid = await this.waitForCreatedDraft(beforePk, params.text);

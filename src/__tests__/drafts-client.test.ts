@@ -142,6 +142,17 @@ describe('DraftsClient.createDraft reads uuid from the DB', () => {
     expect(result.uuid).toBeUndefined();
   });
 
+  it('still dispatches the create and returns undefined when the watermark read fails', async () => {
+    // A DB whose table is missing makes getMaxPk throw; the create must still
+    // be sent (lastUrl set) and resolve to { uuid: undefined }, not reject.
+    const brokenDb = new DraftsDatabase(join(tmpDir, 'no-table.sqlite'));
+    await execFileAsync('sqlite3', [join(tmpDir, 'no-table.sqlite'), 'CREATE TABLE other (x);']);
+    const client = new UrlCapturingClient(brokenDb, { maxRetries: 0 });
+    const result = await client.createDraft({ text: 'x' });
+    expect(result).toEqual({ uuid: undefined });
+    expect(client.lastUrl).toContain('drafts://x-callback-url/create?');
+  });
+
   it('still returns the uuid when Drafts normalizes the stored content', async () => {
     // Drafts persists 'fresh\n' but we created 'fresh' -> no exact match, so the
     // lookup falls back to the newest row past the watermark.
