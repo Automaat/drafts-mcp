@@ -14,6 +14,17 @@ export class CallbackServer {
     this.setupRoutes();
   }
 
+  // Drafts opens the x-success/x-error/x-cancel URL after running the action,
+  // and macOS routes an http:// URL to the default browser. Reply 204 No Content
+  // with an empty body so the browser treats it as a no-op navigation and shows
+  // no page, instead of flashing an "OK" tab for every write. The query params
+  // are already captured before this runs, so the x-success data path is intact.
+  // (Eliminating the browser launch entirely would need a registered custom URL
+  // scheme owned by the MCP — see issue follow-up.)
+  private endSilently(res: Response): void {
+    res.status(204).end();
+  }
+
   private setupRoutes(): void {
     // Success callback handler
     this.app.get('/x-success/:requestId', (req: Request, res: Response) => {
@@ -34,7 +45,7 @@ export class CallbackServer {
         pending.resolve({ success: true, data });
       }
 
-      res.status(200).send('OK');
+      this.endSilently(res);
     });
 
     // Error callback handler
@@ -50,7 +61,7 @@ export class CallbackServer {
         pending.resolve({ success: false, error });
       }
 
-      res.status(200).send('OK');
+      this.endSilently(res);
     });
 
     // Cancel callback handler
@@ -64,7 +75,7 @@ export class CallbackServer {
         pending.resolve({ success: false, error: 'User cancelled' });
       }
 
-      res.status(200).send('OK');
+      this.endSilently(res);
     });
 
     // Health check
