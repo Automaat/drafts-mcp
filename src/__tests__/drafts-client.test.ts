@@ -27,6 +27,45 @@ describe('encodeQueryParams', () => {
   });
 });
 
+// Captures the drafts:// URL buildUrl produces, so we can assert the real
+// write path (not just the helper) encodes spaces as %20.
+class UrlCapturingClient extends DraftsClient {
+  public lastUrl = '';
+  protected async openUrl(url: string): Promise<Record<string, string>> {
+    this.lastUrl = url;
+    return {};
+  }
+}
+
+describe('DraftsClient buildUrl encoding', () => {
+  let callbackServer: CallbackServer;
+  let client: UrlCapturingClient;
+
+  beforeEach(async () => {
+    callbackServer = new CallbackServer();
+    await callbackServer.start();
+    client = new UrlCapturingClient(callbackServer, { maxRetries: 1, retryDelay: 10 });
+  });
+
+  afterEach(async () => {
+    await callbackServer.stop();
+  });
+
+  it('encodes spaces in createDraft as %20 with no literal +', async () => {
+    await client.createDraft({ text: 'hello world', tags: ['a b', 'c'] });
+    expect(client.lastUrl).toContain('drafts://x-callback-url/create?');
+    expect(client.lastUrl).toContain('text=hello%20world');
+    expect(client.lastUrl).toContain('tag=a%20b&tag=c');
+    expect(client.lastUrl.split('?')[1]).not.toContain('+');
+  });
+
+  it('encodes spaces in appendToDraft text', async () => {
+    await client.appendToDraft('UUID-1', 'APPENDED line with spaces');
+    expect(client.lastUrl).toContain('text=APPENDED%20line%20with%20spaces');
+    expect(client.lastUrl.split('?')[1]).not.toContain('+');
+  });
+});
+
 describe('DraftsClient', () => {
   let callbackServer: CallbackServer;
   let draftsClient: DraftsClient;
