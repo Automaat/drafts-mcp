@@ -128,6 +128,15 @@ Then point your client at the built entry point:
 
 ---
 
+## Something not working?
+
+1. **Creating / appending / opening drafts does nothing?** Make sure the **Drafts app is running** — write actions go through Drafts' URL scheme. Reading and searching work even when Drafts is closed.
+2. **First write seems to hang?** macOS may show a prompt asking to let your AI tool open Drafts — approve it and try again.
+3. **Reads fail?** Confirm Drafts is installed and you can open `~/Library/Group Containers/GTFQ98J4YG.com.agiletortoise.Drafts/`.
+4. Still stuck? See [Troubleshooting](#troubleshooting) below.
+
+---
+
 ## Tools
 
 | Tool | What it does |
@@ -171,6 +180,15 @@ drafts-mcp --help       Show help
 drafts-mcp --version    Print version
 ```
 
+## Security
+
+Everything runs locally on your Mac:
+
+- **Reads** query the local Drafts SQLite database directly — no app, network, or cloud involved.
+- **Writes** hand a `drafts://x-callback-url` to the macOS `open` command; Drafts then calls back into a short-lived HTTP server the MCP server starts on a random port.
+- That callback server lives only while the MCP server is running and only completes requests keyed by an unguessable `randomUUID()` it generated itself. It holds no credentials and carries nothing beyond Drafts' own callback payload.
+- No auth tokens, no telemetry, no remote endpoints — your drafts never leave your machine.
+
 ## Requirements
 
 - **macOS** — the server shells out to `open` for URL schemes and reads the macOS Drafts group container.
@@ -200,6 +218,17 @@ Repo layout:
 ### Releasing
 
 Run the **Release** workflow (`.github/workflows/release.yml`) via *Actions → Release → Run workflow*. It bumps every version source, tags, builds the `.mcpb` + binaries + npm tarball, publishes to npm (OIDC trusted publishing), and creates the GitHub release.
+
+## Adding a new tool
+
+A tool lives in **three** hand-kept places in `src/index.ts` plus its implementation — keep them in sync:
+
+1. Define a `zod` schema for the arguments.
+2. Add a tool entry (name, description, hand-written JSON Schema `inputSchema`) to the `ListToolsRequestSchema` handler — keep it identical to the zod shape.
+3. Add a `case` to the `CallToolRequestSchema` switch that parses with the zod schema and calls the implementation.
+4. Implement the operation in `DraftsDatabase` (reads) or `DraftsClient` (writes) — never inline SQLite/URL logic in `index.ts`.
+5. Add a spec under `src/__tests__/` (read tools run against a throwaway SQLite DB).
+6. Add a row to the [Tools](#tools) table above.
 
 ## Troubleshooting
 
