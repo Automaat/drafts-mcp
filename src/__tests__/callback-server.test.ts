@@ -50,6 +50,7 @@ describe('CallbackServer', () => {
     // Simulate error callback
     const httpRes = await fetch(`${callbacks.error}?error=Something went wrong`);
     expect(httpRes.status).toBe(204);
+    expect(await httpRes.text()).toBe('');
 
     const response = await responsePromise;
 
@@ -66,6 +67,7 @@ describe('CallbackServer', () => {
     // Simulate cancel callback
     const httpRes = await fetch(callbacks.cancel);
     expect(httpRes.status).toBe(204);
+    expect(await httpRes.text()).toBe('');
 
     const response = await responsePromise;
 
