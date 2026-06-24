@@ -117,9 +117,12 @@ export class DraftsClient {
       });
 
       // The Drafts `create` x-success callback returns the new draft's uuid.
+      // It may be absent, so extract it explicitly as string | undefined
+      // rather than relying on the Record's index signature being present.
       const response = await this.openUrl(url, requestId);
+      const uuid: string | undefined = response.uuid;
 
-      return { uuid: response.uuid };
+      return { uuid };
     });
   }
 
