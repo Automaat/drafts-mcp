@@ -1,5 +1,12 @@
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { DraftsClient, encodeQueryParams } from '../drafts-client.js';
-import { CallbackServer } from '../callback-server.js';
+import { DraftsDatabase } from '../drafts-db.js';
+
+const execFileAsync = promisify(execFile);
 
 describe('encodeQueryParams', () => {
   it('encodes spaces as %20, not + (Drafts decodes + literally)', () => {
@@ -27,110 +34,175 @@ describe('encodeQueryParams', () => {
   });
 });
 
-// Captures the drafts:// URL buildUrl produces, so we can assert the real
-// write path (not just the helper) encodes spaces as %20.
+// Captures the drafts:// URL openUrl would dispatch, without launching anything.
 class UrlCapturingClient extends DraftsClient {
   public lastUrl = '';
-  protected async openUrl(url: string): Promise<Record<string, string>> {
+  protected async openUrl(url: string): Promise<void> {
     this.lastUrl = url;
-    return {};
   }
 }
 
 describe('DraftsClient buildUrl encoding', () => {
-  let callbackServer: CallbackServer;
   let client: UrlCapturingClient;
 
+  beforeEach(() => {
+    // append/prepend never touch the DB, so a non-existent path is fine here.
+    client = new UrlCapturingClient(new DraftsDatabase('/nonexistent.sqlite'));
+  });
+
+  it('encodes spaces in appendToDraft as %20 with no literal +', async () => {
+    await client.appendToDraft('UUID-1', 'APPENDED line with spaces');
+    expect(client.lastUrl).toContain('drafts://x-callback-url/append?');
+    expect(client.lastUrl).toContain('text=APPENDED%20line%20with%20spaces');
+    expect(client.lastUrl.split('?')[1]).not.toContain('+');
+  });
+
+  it('sets no http callback params, so Drafts opens no browser', async () => {
+    await client.appendToDraft('UUID-1', 'text');
+    expect(client.lastUrl).not.toContain('x-success');
+    expect(client.lastUrl).not.toContain('x-error');
+    expect(client.lastUrl).not.toContain('x-cancel');
+    expect(client.lastUrl).not.toContain('localhost');
+  });
+});
+
+// Simulates Drafts persisting the created draft to the local DB when openUrl is
+// called, so we can assert createDraft reads the new uuid back from the DB.
+class SimulatingClient extends DraftsClient {
+  public lastUrl = '';
+  constructor(
+    db: DraftsDatabase,
+    private dbPath: string,
+    private newUuid: string,
+    private newContent: string
+  ) {
+    super(db, { createLookupTimeout: 2000, createLookupInterval: 20 });
+  }
+  protected async openUrl(url: string): Promise<void> {
+    this.lastUrl = url;
+    if (url.includes('/create?')) {
+      const uuid = this.newUuid.replace(/'/g, "''");
+      const content = this.newContent.replace(/'/g, "''");
+      await execFileAsync('sqlite3', [
+        this.dbPath,
+        `INSERT INTO ZMANAGEDDRAFT (ZUUID, ZCONTENT) VALUES ('${uuid}', '${content}')`,
+      ]);
+    }
+  }
+}
+
+describe('DraftsClient.createDraft reads uuid from the DB', () => {
+  let tmpDir: string;
+  let dbPath: string;
+  let db: DraftsDatabase;
+
   beforeEach(async () => {
-    callbackServer = new CallbackServer();
-    await callbackServer.start();
-    client = new UrlCapturingClient(callbackServer, { maxRetries: 1, retryDelay: 10 });
+    tmpDir = mkdtempSync(join(tmpdir(), 'drafts-client-test-'));
+    dbPath = join(tmpDir, 'DraftStore.sqlite');
+    const setup = `
+      CREATE TABLE ZMANAGEDDRAFT (
+        Z_PK INTEGER PRIMARY KEY,
+        ZUUID TEXT,
+        ZCONTENT TEXT
+      );
+      INSERT INTO ZMANAGEDDRAFT (ZUUID, ZCONTENT) VALUES ('existing', 'old draft');
+    `;
+    await execFileAsync('sqlite3', [dbPath, setup]);
+    db = new DraftsDatabase(dbPath);
   });
 
-  afterEach(async () => {
-    await callbackServer.stop();
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('encodes spaces in createDraft as %20 with no literal +', async () => {
+  it('returns the uuid of the draft created after the pre-create watermark', async () => {
+    const client = new SimulatingClient(db, dbPath, 'NEW-UUID', 'fresh content');
+    await expect(client.createDraft({ text: 'fresh content' })).resolves.toEqual({
+      uuid: 'NEW-UUID',
+    });
+  });
+
+  it('builds a create URL with encoded tags and no http callbacks', async () => {
+    const client = new SimulatingClient(db, dbPath, 'NEW-UUID', 'hello world');
     await client.createDraft({ text: 'hello world', tags: ['a b', 'c'] });
     expect(client.lastUrl).toContain('drafts://x-callback-url/create?');
     expect(client.lastUrl).toContain('text=hello%20world');
     expect(client.lastUrl).toContain('tag=a%20b&tag=c');
-    expect(client.lastUrl.split('?')[1]).not.toContain('+');
+    expect(client.lastUrl).not.toContain('x-success');
   });
 
-  it('encodes spaces in appendToDraft text', async () => {
-    await client.appendToDraft('UUID-1', 'APPENDED line with spaces');
-    expect(client.lastUrl).toContain('text=APPENDED%20line%20with%20spaces');
-    expect(client.lastUrl.split('?')[1]).not.toContain('+');
-  });
-});
-
-// Returns a canned x-success payload so we can assert createDraft surfaces
-// the uuid the Drafts callback hands back.
-class StubResponseClient extends DraftsClient {
-  constructor(
-    callbackServer: CallbackServer,
-    private response: Record<string, string>
-  ) {
-    super(callbackServer, { maxRetries: 1, retryDelay: 10 });
-  }
-  protected async openUrl(): Promise<Record<string, string>> {
-    return this.response;
-  }
-}
-
-describe('DraftsClient.createDraft return value', () => {
-  let callbackServer: CallbackServer;
-
-  beforeEach(async () => {
-    callbackServer = new CallbackServer();
-    await callbackServer.start();
-  });
-
-  afterEach(async () => {
-    await callbackServer.stop();
-  });
-
-  it('returns the uuid from the create callback', async () => {
-    const client = new StubResponseClient(callbackServer, { uuid: 'NEW-DRAFT-UUID' });
-    await expect(client.createDraft({ text: 'hi' })).resolves.toEqual({ uuid: 'NEW-DRAFT-UUID' });
-  });
-
-  it('returns an object with a uuid key even when the callback omits it', async () => {
-    const client = new StubResponseClient(callbackServer, {});
-    const result = await client.createDraft({ text: 'hi' });
-    // toEqual({uuid:undefined}) also matches {}, so assert the key is present.
+  it('returns an object with a uuid key (undefined) when no draft appears', async () => {
+    // Plain client whose openUrl is a no-op, so nothing is inserted.
+    const client = new UrlCapturingClient(db, {
+      createLookupTimeout: 50,
+      createLookupInterval: 10,
+    });
+    const result = await client.createDraft({ text: 'never persisted' });
     expect(Object.keys(result)).toEqual(['uuid']);
     expect(result.uuid).toBeUndefined();
+  });
+
+  it('still dispatches the create and returns undefined when the watermark read fails', async () => {
+    // A DB whose table is missing makes getMaxPk throw; the create must still
+    // be sent (lastUrl set) and resolve to { uuid: undefined }, not reject.
+    const brokenDb = new DraftsDatabase(join(tmpDir, 'no-table.sqlite'));
+    await execFileAsync('sqlite3', [join(tmpDir, 'no-table.sqlite'), 'CREATE TABLE other (x);']);
+    const client = new UrlCapturingClient(brokenDb, { maxRetries: 0 });
+    const result = await client.createDraft({ text: 'x' });
+    expect(result).toEqual({ uuid: undefined });
+    expect(client.lastUrl).toContain('drafts://x-callback-url/create?');
+  });
+
+  it('still returns the uuid when Drafts normalizes the stored content', async () => {
+    // Drafts persists 'fresh\n' but we created 'fresh' -> no exact match, so the
+    // lookup falls back to the newest row past the watermark.
+    const client = new SimulatingClient(db, dbPath, 'NORM-UUID', 'fresh\n');
+    await expect(client.createDraft({ text: 'fresh' })).resolves.toEqual({ uuid: 'NORM-UUID' });
+  });
+
+  it('gives concurrent identical-content creates distinct uuids', async () => {
+    let n = 0;
+    class CountingClient extends DraftsClient {
+      constructor() {
+        super(db, { createLookupTimeout: 2000, createLookupInterval: 10 });
+      }
+      protected async openUrl(url: string): Promise<void> {
+        if (url.includes('/create?')) {
+          n += 1;
+          await execFileAsync('sqlite3', [
+            dbPath,
+            `INSERT INTO ZMANAGEDDRAFT (ZUUID, ZCONTENT) VALUES ('uuid-${n}', 'dup')`,
+          ]);
+        }
+      }
+    }
+    const client = new CountingClient();
+    const [a, b] = await Promise.all([
+      client.createDraft({ text: 'dup' }),
+      client.createDraft({ text: 'dup' }),
+    ]);
+    expect(a.uuid).not.toBe(b.uuid);
+    expect(new Set([a.uuid, b.uuid])).toEqual(new Set(['uuid-1', 'uuid-2']));
   });
 });
 
 describe('DraftsClient', () => {
-  let callbackServer: CallbackServer;
   let draftsClient: DraftsClient;
 
-  beforeEach(async () => {
-    callbackServer = new CallbackServer();
-    await callbackServer.start();
-    draftsClient = new DraftsClient(callbackServer, { maxRetries: 1, retryDelay: 100 });
+  beforeEach(() => {
+    draftsClient = new DraftsClient(new DraftsDatabase('/nonexistent.sqlite'));
   });
 
-  afterEach(async () => {
-    await callbackServer.stop();
-  });
-
-  it('should construct client with callback server', () => {
+  it('should construct client with a database', () => {
     expect(draftsClient).toBeDefined();
   });
 
-  it('should have correct configuration', () => {
-    const client = new DraftsClient(callbackServer, { maxRetries: 3, retryDelay: 500 });
-    expect(client).toBeDefined();
-  });
-
-  it('should use default config values', () => {
-    const client = new DraftsClient(callbackServer);
+  it('should accept custom configuration', () => {
+    const client = new DraftsClient(new DraftsDatabase('/nonexistent.sqlite'), {
+      maxRetries: 3,
+      retryDelay: 500,
+      createLookupTimeout: 5000,
+    });
     expect(client).toBeDefined();
   });
 });

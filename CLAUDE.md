@@ -6,8 +6,7 @@ MCP server bridging AI clients (Claude/Codex/Cursor/...) to the **Drafts** app o
 
 - `src/index.ts` — MCP server entry point (`#!/usr/bin/env node`): tool/resource registration + dispatch.
 - `src/drafts-db.ts` — `DraftsDatabase`: READ path, shells out to sqlite3 CLI.
-- `src/drafts-client.ts` — `DraftsClient`: WRITE path, builds x-callback-url + `open`.
-- `src/callback-server.ts` — `CallbackServer`: short-lived Express server capturing x-callback responses.
+- `src/drafts-client.ts` — `DraftsClient`: WRITE path, builds x-callback-url + `open` (fire-and-forget; created UUID read back from the DB).
 - `src/version.ts` — GENERATED, do not hand-edit (see Version Sync).
 - `src/__tests__/` — jest specs; run real sqlite3 against throwaway DBs.
 - `scripts/bump-version.mjs` — single source of truth for release version.
@@ -19,7 +18,6 @@ MCP server bridging AI clients (Claude/Codex/Cursor/...) to the **Drafts** app o
 **Runtime:** Node ≥18 (mise pins node 24), ESM only (`"type": "module"`)
 **MCP:** `@modelcontextprotocol/sdk` over `StdioServerTransport`
 **Validation:** zod 4
-**HTTP:** express 5 + get-port (callback server)
 **Testing:** jest 30 + ts-jest (ESM preset)
 **Linting:** eslint 10 flat config + prettier
 **Tooling:** mise (node, bun); build artifacts via tsc and Bun
@@ -35,10 +33,12 @@ This is the central design fact. Every tool falls into one of two paths.
 - Cocoa epoch: DB timestamps are seconds since 2001-01-01; convert with `COCOA_EPOCH_OFFSET`.
 - Title fallback: `ZTITLE` is usually empty — derive the display title from the first line of `ZCONTENT` (mirror the existing `CASE` expression in any new query).
 
-**WRITE path — `DraftsClient` + `CallbackServer`**
+**WRITE path — `DraftsClient` (`drafts-client.ts`)**
 - Tools: `create_draft`, `append_to_draft`, `prepend_to_draft`, `open_draft`, `run_action`, `search_drafts`.
-- Builds a `drafts://x-callback-url/...` URL, registers a request id, runs `open <url>`, then awaits the Drafts callback on a random-port localhost Express server.
-- Requires the Drafts app to be **running**. Retries 3× with `retryDelay` backoff (`executeWithRetry`). 30s per-request timeout.
+- Builds a `drafts://x-callback-url/...` URL and runs `open <url>` **fire-and-forget** — no `x-success`/`x-error`/`x-cancel` callbacks, so Drafts opens nothing and macOS never routes an `http://` callback to the browser (issue #51).
+- No callback HTTP server. Because writes are fire-and-forget, they cannot detect Drafts-side errors; tool responses say a request was "sent to Drafts", not that it succeeded.
+- `create_draft` returns the new draft's UUID by reading the local DB: capture `getMaxPk()` before, `open` the create URL, then poll `findCreatedDraftUuid(beforePk, text)` (Core Data `Z_PK` watermark) until it appears or `createLookupTimeout` (10s) elapses. Creates are serialized (`createChain`) so concurrent ones get unambiguous watermarks.
+- Requires the Drafts app to be installed (handles a `drafts://` URL). Retries 3× with `retryDelay` backoff (`executeWithRetry`); the create poll swallows transient DB errors so a retry never re-fires the create.
 
 `get_draft` was deliberately moved to the READ path (see `// PATCHED` comments) so reads never depend on the app being open — keep it that way.
 

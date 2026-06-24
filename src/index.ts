@@ -8,7 +8,6 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { CallbackServer } from './callback-server.js';
 import { DraftsClient } from './drafts-client.js';
 import { DraftsDatabase } from './drafts-db.js';
 import { VERSION } from './version.js';
@@ -89,7 +88,6 @@ const SearchDraftsDbSchema = z.object({
 
 class DraftsMCPServer {
   private server: Server;
-  private callbackServer: CallbackServer;
   private draftsClient: DraftsClient;
   private draftsDb: DraftsDatabase;
 
@@ -107,9 +105,8 @@ class DraftsMCPServer {
       }
     );
 
-    this.callbackServer = new CallbackServer();
-    this.draftsClient = new DraftsClient(this.callbackServer);
     this.draftsDb = new DraftsDatabase();
+    this.draftsClient = new DraftsClient(this.draftsDb);
 
     this.setupHandlers();
     this.setupErrorHandling();
@@ -120,19 +117,8 @@ class DraftsMCPServer {
       console.error('[MCP Error]', error);
     };
 
-    process.on('SIGINT', async () => {
-      await this.cleanup();
-      process.exit(0);
-    });
-
-    process.on('SIGTERM', async () => {
-      await this.cleanup();
-      process.exit(0);
-    });
-  }
-
-  private async cleanup(): Promise<void> {
-    await this.callbackServer.stop();
+    process.on('SIGINT', () => process.exit(0));
+    process.on('SIGTERM', () => process.exit(0));
   }
 
   private setupHandlers(): void {
@@ -277,7 +263,9 @@ class DraftsMCPServer {
               content: [
                 {
                   type: 'text',
-                  text: uuid ? `Draft created: ${uuid}` : 'Draft created successfully',
+                  text: uuid
+                    ? `Draft created: ${uuid}`
+                    : 'Draft create request sent to Drafts; new uuid unavailable',
                 },
               ],
             };
@@ -330,7 +318,7 @@ class DraftsMCPServer {
             const args = AppendToDraftSchema.parse(request.params.arguments);
             await this.draftsClient.appendToDraft(args.uuid, args.text);
             return {
-              content: [{ type: 'text', text: 'Text appended successfully' }],
+              content: [{ type: 'text', text: 'Append request sent to Drafts' }],
             };
           }
 
@@ -338,7 +326,7 @@ class DraftsMCPServer {
             const args = PrependToDraftSchema.parse(request.params.arguments);
             await this.draftsClient.prependToDraft(args.uuid, args.text);
             return {
-              content: [{ type: 'text', text: 'Text prepended successfully' }],
+              content: [{ type: 'text', text: 'Prepend request sent to Drafts' }],
             };
           }
 
@@ -346,7 +334,7 @@ class DraftsMCPServer {
             const args = OpenDraftSchema.parse(request.params.arguments);
             await this.draftsClient.openDraft(args);
             return {
-              content: [{ type: 'text', text: 'Draft opened in Drafts app' }],
+              content: [{ type: 'text', text: 'Open request sent to Drafts' }],
             };
           }
 
@@ -354,7 +342,7 @@ class DraftsMCPServer {
             const args = RunActionSchema.parse(request.params.arguments);
             await this.draftsClient.runAction(args.action, args.text);
             return {
-              content: [{ type: 'text', text: 'Action executed successfully' }],
+              content: [{ type: 'text', text: 'Action request sent to Drafts' }],
             };
           }
 
@@ -362,7 +350,7 @@ class DraftsMCPServer {
             const args = SearchDraftsSchema.parse(request.params.arguments);
             await this.draftsClient.searchDrafts(args);
             return {
-              content: [{ type: 'text', text: 'Search opened in Drafts app' }],
+              content: [{ type: 'text', text: 'Search request sent to Drafts' }],
             };
           }
 
@@ -420,9 +408,6 @@ class DraftsMCPServer {
   }
 
   async start(): Promise<void> {
-    // Start callback server
-    await this.callbackServer.start();
-
     // Start MCP server with stdio transport
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
