@@ -6,6 +6,37 @@ import { Draft } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
+// encodeURIComponent leaves !'()* unescaped; percent-encode them too so the
+// value is safe inside an x-callback-url query string.
+export function encodeURIComponentSafe(str: string): string {
+  return encodeURIComponent(str).replace(/[!'()*]/g, (c) => {
+    return '%' + c.charCodeAt(0).toString(16).toUpperCase();
+  });
+}
+
+// Build an x-callback-url query string. Unlike URLSearchParams.toString(),
+// this encodes spaces as %20 (not +); Drafts decodes a literal + as +, so
+// URLSearchParams would corrupt every space in the payload.
+export function encodeQueryParams(
+  params: Record<string, string | string[] | boolean | undefined>
+): string {
+  const pairs: string[] = [];
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+
+    const values = Array.isArray(value)
+      ? value
+      : [typeof value === 'boolean' ? value.toString() : value];
+
+    for (const v of values) {
+      pairs.push(`${encodeURIComponentSafe(key)}=${encodeURIComponentSafe(v)}`);
+    }
+  }
+
+  return pairs.join('&');
+}
+
 export interface DraftsClientConfig {
   maxRetries?: number;
   retryDelay?: number;
@@ -37,44 +68,27 @@ export class DraftsClient {
     }
   }
 
-  private encodeURIComponentSafe(str: string): string {
-    return encodeURIComponent(str).replace(/[!'()*]/g, (c) => {
-      return '%' + c.charCodeAt(0).toString(16).toUpperCase();
-    });
-  }
-
   private buildUrl(
     endpoint: string,
     params: Record<string, string | string[] | boolean | undefined>
-  ): string {
+  ): { url: string; requestId: string } {
     const requestId = randomUUID();
     const callbacks = this.callbackServer.getCallbackUrls(requestId);
 
-    const urlParams = new URLSearchParams();
-
-    for (const [key, value] of Object.entries(params)) {
-      if (value === undefined) continue;
-
-      if (Array.isArray(value)) {
-        value.forEach((v) => urlParams.append(key, v));
-      } else if (typeof value === 'boolean') {
-        urlParams.append(key, value.toString());
-      } else {
-        urlParams.append(key, value);
-      }
-    }
-
-    urlParams.append('x-success', callbacks.success);
-    urlParams.append('x-error', callbacks.error);
-    urlParams.append('x-cancel', callbacks.cancel);
+    const query = encodeQueryParams({
+      ...params,
+      'x-success': callbacks.success,
+      'x-error': callbacks.error,
+      'x-cancel': callbacks.cancel,
+    });
 
     return {
-      url: `drafts://x-callback-url/${endpoint}?${urlParams.toString()}`,
+      url: `drafts://x-callback-url/${endpoint}?${query}`,
       requestId,
-    } as any;
+    };
   }
 
-  private async openUrl(url: string, requestId: string): Promise<Record<string, string>> {
+  protected async openUrl(url: string, requestId: string): Promise<Record<string, string>> {
     const responsePromise = this.callbackServer.registerRequest(requestId);
 
     await execFileAsync('open', [url]);
@@ -100,7 +114,7 @@ export class DraftsClient {
         tag: params.tags,
         action: params.action,
         folder: params.folder,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -110,7 +124,7 @@ export class DraftsClient {
     return this.executeWithRetry(async () => {
       const { url, requestId } = this.buildUrl('get', {
         uuid,
-      }) as any;
+      });
 
       const response = await this.openUrl(url, requestId);
 
@@ -142,7 +156,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('append', {
         uuid,
         text,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -153,7 +167,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('prepend', {
         uuid,
         text,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -168,7 +182,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('open', {
         uuid: params.uuid,
         title: params.title,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -179,7 +193,7 @@ export class DraftsClient {
       const { url, requestId } = this.buildUrl('runAction', {
         action: actionName,
         text,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
@@ -195,7 +209,7 @@ export class DraftsClient {
         query: params.query,
         tag: params.tag,
         folder: params.folder,
-      }) as any;
+      });
 
       await this.openUrl(url, requestId);
     });
