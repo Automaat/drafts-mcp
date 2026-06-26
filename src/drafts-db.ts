@@ -1,18 +1,16 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { homedir } from 'os';
 import { join } from 'path';
 import { DraftMetadata } from './types.js';
-
-const execFileAsync = promisify(execFile);
+import { SqliteReader, SqliteDriver } from './sqlite.js';
 
 // Drafts stores timestamps as seconds since 2001-01-01 (Apple Cocoa reference date)
 const COCOA_EPOCH_OFFSET = 978307200;
 
 export class DraftsDatabase {
   private dbPath: string;
+  private reader: SqliteReader;
 
-  constructor(dbPath?: string) {
+  constructor(dbPath?: string, options: { driver?: SqliteDriver } = {}) {
     this.dbPath =
       dbPath ||
       join(
@@ -22,18 +20,22 @@ export class DraftsDatabase {
         'GTFQ98J4YG.com.agiletortoise.Drafts',
         'DraftStore.sqlite'
       );
+    // DRAFTS_MCP_SQLITE_DRIVER=cli forces the subprocess path as an escape hatch
+    // if the in-process driver ever misbehaves on a given machine.
+    const driver =
+      options.driver ?? (process.env.DRAFTS_MCP_SQLITE_DRIVER === 'cli' ? 'cli' : 'auto');
+    this.reader = new SqliteReader(this.dbPath, driver);
+  }
+
+  // Release the persistent read-only connection. Optional for the long-lived
+  // server (the OS reaps the fd on exit); used by tests to avoid leaked handles.
+  dispose(): void {
+    this.reader.dispose();
   }
 
   private convertCocoaTimestamp(timestamp: number): string {
     const unixTimestamp = timestamp + COCOA_EPOCH_OFFSET;
     return new Date(unixTimestamp * 1000).toISOString();
-  }
-
-  // sqlite3 -json emits an empty string (not "[]") when no rows match,
-  // so guard against parsing that as JSON.
-  private parseRows(stdout: string): any[] {
-    const trimmed = stdout.trim();
-    return trimmed ? JSON.parse(trimmed) : [];
   }
 
   // Drafts stores ZCACHED_TAGS as space-separated ZZZ<tag>ZZZ tokens, not a
@@ -44,6 +46,22 @@ export class DraftsDatabase {
   private parseCachedTags(raw?: string | null): string[] {
     if (!raw) return [];
     return [...raw.matchAll(/ZZZ(.*?)ZZZ(?=\s|$)/g)].map((m) => m[1]).filter((t) => t.length > 0);
+  }
+
+  // Map one ZMANAGEDDRAFT row (CLI -json or in-process driver — same shape) to
+  // DraftMetadata. Folder/flag columns come back as integers; tags/timestamps
+  // are normalized via the helpers above.
+  private toMetadata(row: Record<string, unknown>): DraftMetadata {
+    return {
+      uuid: row.uuid as string,
+      title: (row.title as string) || '',
+      tags: this.parseCachedTags(row.tags as string | null | undefined),
+      createdAt: this.convertCocoaTimestamp(row.createdAt as number),
+      modifiedAt: this.convertCocoaTimestamp(row.modifiedAt as number),
+      isFlagged: row.isFlagged === 1,
+      isArchived: row.folder === 1,
+      isTrashed: row.folder === 2,
+    };
   }
 
   // Escape a value for interpolation into a single-quoted SQLite string literal
@@ -105,20 +123,9 @@ export class DraftsDatabase {
     `;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
+      const results = await this.reader.query(query);
 
-      const results = this.parseRows(stdout);
-
-      return results.map((row) => ({
-        uuid: row.uuid,
-        title: row.title || '',
-        tags: this.parseCachedTags(row.tags),
-        createdAt: this.convertCocoaTimestamp(row.createdAt),
-        modifiedAt: this.convertCocoaTimestamp(row.modifiedAt),
-        isFlagged: row.isFlagged === 1,
-        isArchived: row.folder === 1,
-        isTrashed: row.folder === 2,
-      }));
+      return results.map((row) => this.toMetadata(row));
     } catch (error) {
       throw new Error(`Failed to query Drafts database: ${error}`, {
         cause: error,
@@ -134,15 +141,13 @@ export class DraftsDatabase {
     `;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
-
-      const results = this.parseRows(stdout);
+      const results = await this.reader.query(query);
 
       if (results.length === 0) {
         return null;
       }
 
-      return results[0].content || '';
+      return (results[0].content as string) || '';
     } catch (error) {
       throw new Error(`Failed to query draft content: ${error}`, {
         cause: error,
@@ -172,20 +177,9 @@ export class DraftsDatabase {
     `;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
+      const results = await this.reader.query(query);
 
-      const results = this.parseRows(stdout);
-
-      return results.map((row) => ({
-        uuid: row.uuid,
-        title: row.title || '',
-        tags: this.parseCachedTags(row.tags),
-        createdAt: this.convertCocoaTimestamp(row.createdAt),
-        modifiedAt: this.convertCocoaTimestamp(row.modifiedAt),
-        isFlagged: row.isFlagged === 1,
-        isArchived: row.folder === 1,
-        isTrashed: row.folder === 2,
-      }));
+      return results.map((row) => this.toMetadata(row));
     } catch (error) {
       throw new Error(`Failed to search drafts: ${error}`, {
         cause: error,
@@ -201,9 +195,8 @@ export class DraftsDatabase {
     const query = `SELECT MAX(Z_PK) as maxPk FROM ZMANAGEDDRAFT`;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
-      const results = this.parseRows(stdout);
-      return results[0]?.maxPk ?? 0;
+      const results = await this.reader.query(query);
+      return (results[0]?.maxPk as number) ?? 0;
     } catch (error) {
       throw new Error(`Failed to read max draft id: ${error}`, {
         cause: error,
@@ -227,9 +220,8 @@ export class DraftsDatabase {
     `;
 
     try {
-      const { stdout } = await execFileAsync('sqlite3', [this.dbPath, '-json', query]);
-      const results = this.parseRows(stdout);
-      return results.length > 0 ? results[0].uuid : null;
+      const results = await this.reader.query(query);
+      return results.length > 0 ? (results[0].uuid as string) : null;
     } catch (error) {
       throw new Error(`Failed to look up created draft: ${error}`, {
         cause: error,

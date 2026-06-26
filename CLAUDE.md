@@ -5,10 +5,11 @@ MCP server bridging AI clients (Claude/Codex/Cursor/...) to the **Drafts** app o
 ## Key Files
 
 - `src/index.ts` — MCP server entry point (`#!/usr/bin/env node`): tool/resource registration + dispatch.
-- `src/drafts-db.ts` — `DraftsDatabase`: READ path, shells out to sqlite3 CLI.
+- `src/drafts-db.ts` — `DraftsDatabase`: READ path, builds SQL + maps rows (queries via `SqliteReader`).
+- `src/sqlite.ts` — `SqliteReader`: in-process SQLite (node:sqlite / bun:sqlite) over a persistent read-only connection, with a `sqlite3` CLI fallback.
 - `src/drafts-client.ts` — `DraftsClient`: WRITE path, builds x-callback-url + `open` (fire-and-forget; created UUID read back from the DB).
 - `src/version.ts` — GENERATED, do not hand-edit (see Version Sync).
-- `src/__tests__/` — jest specs; run real sqlite3 against throwaway DBs.
+- `src/__tests__/` — jest specs; seed throwaway DBs with the sqlite3 CLI, query via both the in-process and CLI backends (asserting parity).
 - `scripts/bump-version.mjs` — single source of truth for release version.
 - `mcpb/manifest.json` — .mcpb bundle manifest (carries version). `build/` is tsc output (gitignored); bin target is `build/index.js`.
 
@@ -26,9 +27,12 @@ MCP server bridging AI clients (Claude/Codex/Cursor/...) to the **Drafts** app o
 
 This is the central design fact. Every tool falls into one of two paths.
 
-**READ path — `DraftsDatabase` (`drafts-db.ts`)**
+**READ path — `DraftsDatabase` (`drafts-db.ts`) → `SqliteReader` (`sqlite.ts`)**
 - Tools: `get_draft`, `get_all_drafts`, `search_drafts_db`, and the `draft://uuid/{uuid}` resource.
-- Shells out to the system `sqlite3 -json` CLI against `~/Library/Group Containers/GTFQ98J4YG.com.agiletortoise.Drafts/DraftStore.sqlite`.
+- Reads `~/Library/Group Containers/GTFQ98J4YG.com.agiletortoise.Drafts/DraftStore.sqlite` **in-process** via `SqliteReader`: a persistent read-only connection using `node:sqlite` (Node ≥22.5) or `bun:sqlite` (the standalone binary). This is ~25–60× faster than spawning a process per query (median read dropped from ~25ms to <1ms).
+- Falls back to the `sqlite3 -json` CLI subprocess when no in-process driver is available (Node 18/20) or an in-process query fails (stale connection self-heals). Set `DRAFTS_MCP_SQLITE_DRIVER=cli` to force the subprocess path. The CLI path and in-process path return identical row shapes — keep them parity-tested.
+- `DraftsDatabase` only builds SQL strings and maps rows; never put driver/subprocess logic there — it belongs in `SqliteReader`.
+- A persistent connection stays current: SQLite runs each statement in its own autocommit read transaction, so Drafts-side writes are visible to the next query without reopening.
 - Works even when the Drafts app is closed.
 - Cocoa epoch: DB timestamps are seconds since 2001-01-01; convert with `COCOA_EPOCH_OFFSET`.
 - Title fallback: `ZTITLE` is usually empty — derive the display title from the first line of `ZCONTENT` (mirror the existing `CASE` expression in any new query).

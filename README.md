@@ -169,7 +169,7 @@ Then point your client at the built entry point:
                             └──────────────────┘
 ```
 
-- **Reads** (`get_*`, `search_drafts_db`) query the local Drafts SQLite database directly via the system `sqlite3` CLI — works even when Drafts is closed.
+- **Reads** (`get_*`, `search_drafts_db`) query the local Drafts SQLite database in-process (`node:sqlite`, or `bun:sqlite` in the standalone binary) over a persistent read-only connection — works even when Drafts is closed. Falls back to the system `sqlite3` CLI on older Node.
 - **Writes** (`create`, `append`, `prepend`, `open`, `run_action`, `search_drafts`) use Drafts' `x-callback-url` scheme. A short-lived Express callback server on a random localhost port captures the response. Retries 3× with exponential backoff.
 
 ## CLI reference
@@ -193,7 +193,7 @@ Everything runs locally on your Mac:
 
 - **macOS** — the server shells out to `open` for URL schemes and reads the macOS Drafts group container.
 - **[Drafts app](https://getdrafts.com)** installed (and running for write operations).
-- **Node.js 18+** — unless you use the standalone binary.
+- **Node.js 18+** — unless you use the standalone binary. Node 22.5+ (mise pins 24) reads the database in-process; Node 18/20 falls back to the `sqlite3` CLI, which must be on `PATH`.
 
 ## Develop
 

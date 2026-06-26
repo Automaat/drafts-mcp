@@ -41,6 +41,7 @@ describe('DraftsDatabase', () => {
   });
 
   afterAll(() => {
+    db.dispose();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -186,7 +187,10 @@ describe('DraftsDatabase', () => {
       edgeDb = new DraftsDatabase(p);
     });
 
-    afterAll(() => rmSync(edgeDir, { recursive: true, force: true }));
+    afterAll(() => {
+      edgeDb.dispose();
+      rmSync(edgeDir, { recursive: true, force: true });
+    });
 
     it('keeps a trailing uppercase Z in the tag name', async () => {
       const drafts = await edgeDb.getAllDrafts();

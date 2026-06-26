@@ -60,7 +60,9 @@ export class DraftsClient {
     this.maxRetries = config.maxRetries ?? 3;
     this.retryDelay = config.retryDelay ?? 1000;
     this.createLookupTimeout = config.createLookupTimeout ?? 10000;
-    this.createLookupInterval = config.createLookupInterval ?? 200;
+    // In-process DB lookups cost ~1ms, so poll tightly: a created draft surfaces
+    // within a poll interval of Drafts committing it, not up to 200ms later.
+    this.createLookupInterval = config.createLookupInterval ?? 75;
   }
 
   private async executeWithRetry<T>(
