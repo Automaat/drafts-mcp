@@ -1,8 +1,18 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { DraftsDatabase } from './drafts-db.js';
+import { ActiveDriver } from './sqlite.js';
 
 const execFileAsync = promisify(execFile);
+
+// Poll cadence for the post-create DB lookup. An explicit config value always
+// wins; otherwise poll tightly (75ms) when reads are in-process ~1ms lookups,
+// but relax to 200ms on the sqlite3 CLI fallback so a create that never lands
+// doesn't spawn a subprocess every 75ms for the full lookup window.
+export function createPollInterval(configured: number | undefined, driver: ActiveDriver): number {
+  if (configured !== undefined) return configured;
+  return driver === 'cli' ? 200 : 75;
+}
 
 // encodeURIComponent leaves !'()* unescaped; percent-encode them too so the
 // value is safe inside an x-callback-url query string.
@@ -49,7 +59,8 @@ export class DraftsClient {
   private maxRetries: number;
   private retryDelay: number;
   private createLookupTimeout: number;
-  private createLookupInterval: number;
+  // undefined => adaptive: tight when reads are in-process, relaxed on the CLI.
+  private createLookupInterval?: number;
   // Serializes createDraft calls so each captures a Z_PK watermark that already
   // reflects prior creates. Without this, two concurrent creates would share a
   // watermark and the DB lookup could not tell their drafts apart.
@@ -60,7 +71,11 @@ export class DraftsClient {
     this.maxRetries = config.maxRetries ?? 3;
     this.retryDelay = config.retryDelay ?? 1000;
     this.createLookupTimeout = config.createLookupTimeout ?? 10000;
-    this.createLookupInterval = config.createLookupInterval ?? 200;
+    this.createLookupInterval = config.createLookupInterval;
+  }
+
+  private pollInterval(): number {
+    return createPollInterval(this.createLookupInterval, this.db.activeDriver);
   }
 
   private async executeWithRetry<T>(
@@ -112,7 +127,9 @@ export class DraftsClient {
         // the create and produce a duplicate draft.
       }
       if (Date.now() >= deadline) return undefined;
-      await new Promise((resolve) => setTimeout(resolve, this.createLookupInterval));
+      // Computed each iteration so it reflects the driver once the first lookup
+      // has resolved it (activeDriver is 'pending' until then).
+      await new Promise((resolve) => setTimeout(resolve, this.pollInterval()));
     }
   }
 
