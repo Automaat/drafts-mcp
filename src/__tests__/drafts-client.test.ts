@@ -3,10 +3,28 @@ import { promisify } from 'util';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { DraftsClient, encodeQueryParams } from '../drafts-client.js';
+import { DraftsClient, encodeQueryParams, createPollInterval } from '../drafts-client.js';
 import { DraftsDatabase } from '../drafts-db.js';
 
 const execFileAsync = promisify(execFile);
+
+describe('createPollInterval', () => {
+  it('honors an explicit configured interval regardless of driver', () => {
+    expect(createPollInterval(20, 'cli')).toBe(20);
+    expect(createPollInterval(20, 'node-sqlite')).toBe(20);
+    expect(createPollInterval(0, 'cli')).toBe(0);
+  });
+
+  it('polls tightly for in-process drivers', () => {
+    expect(createPollInterval(undefined, 'node-sqlite')).toBe(75);
+    expect(createPollInterval(undefined, 'bun-sqlite')).toBe(75);
+    expect(createPollInterval(undefined, 'pending')).toBe(75);
+  });
+
+  it('relaxes to 200ms on the sqlite3 CLI fallback', () => {
+    expect(createPollInterval(undefined, 'cli')).toBe(200);
+  });
+});
 
 describe('encodeQueryParams', () => {
   it('encodes spaces as %20, not + (Drafts decodes + literally)', () => {
@@ -112,6 +130,7 @@ describe('DraftsClient.createDraft reads uuid from the DB', () => {
   });
 
   afterEach(() => {
+    db.dispose();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -151,6 +170,7 @@ describe('DraftsClient.createDraft reads uuid from the DB', () => {
     const result = await client.createDraft({ text: 'x' });
     expect(result).toEqual({ uuid: undefined });
     expect(client.lastUrl).toContain('drafts://x-callback-url/create?');
+    brokenDb.dispose();
   });
 
   it('still returns the uuid when Drafts normalizes the stored content', async () => {

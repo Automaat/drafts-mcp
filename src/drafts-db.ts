@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { DraftMetadata } from './types.js';
-import { SqliteReader, SqliteDriver } from './sqlite.js';
+import { SqliteReader, SqliteDriver, ActiveDriver } from './sqlite.js';
 
 // Drafts stores timestamps as seconds since 2001-01-01 (Apple Cocoa reference date)
 const COCOA_EPOCH_OFFSET = 978307200;
@@ -25,6 +25,12 @@ export class DraftsDatabase {
     const driver =
       options.driver ?? (process.env.DRAFTS_MCP_SQLITE_DRIVER === 'cli' ? 'cli' : 'auto');
     this.reader = new SqliteReader(this.dbPath, driver);
+  }
+
+  // The backend the reader resolved to ('cli' on runtimes without an in-process
+  // driver). Callers use it to tune behavior, e.g. polling cadence.
+  get activeDriver(): ActiveDriver {
+    return this.reader.activeDriver;
   }
 
   // Release the persistent read-only connection. Optional for the long-lived

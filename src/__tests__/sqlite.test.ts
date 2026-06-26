@@ -7,6 +7,19 @@ import { SqliteReader } from '../sqlite.js';
 
 const execFileAsync = promisify(execFile);
 
+// Mirrors SqliteReader's driver probe: does this runtime offer an in-process
+// SQLite backend, or will it (correctly) fall back to the sqlite3 CLI?
+function fastPathSupported(): boolean {
+  if ('bun' in process.versions) return true;
+  if (typeof process.getBuiltinModule !== 'function') return false;
+  try {
+    const mod = process.getBuiltinModule('node:sqlite') as { DatabaseSync?: unknown } | undefined;
+    return !!mod?.DatabaseSync;
+  } catch {
+    return false;
+  }
+}
+
 // SqliteReader has two interchangeable backends: an in-process driver
 // (node:sqlite / bun:sqlite) and the sqlite3 CLI. These tests pin down that
 // both return identical results so the fast path is a drop-in for the fallback.
@@ -59,12 +72,18 @@ describe('SqliteReader', () => {
     reader.dispose();
   });
 
-  it('uses the in-process driver on this runtime (Node >=22.5 / Bun)', async () => {
-    // Guards against a silent regression to the slow CLI path: the parity tests
-    // pass even if auto falls back to the CLI, so assert the resolved backend.
+  it('resolves to the in-process driver when the runtime supports it', async () => {
+    // Guards against a silent regression to the slow CLI path on the runtimes
+    // that DO support the fast path (Node >=22.5 / Bun — including CI on 24),
+    // while staying portable on Node 18/20 where the CLI fallback is correct.
     const reader = new SqliteReader(dbPath, 'auto');
     await reader.query('SELECT 1 as one');
-    expect(reader.activeDriver).toBe('bun' in process.versions ? 'bun-sqlite' : 'node-sqlite');
+
+    if (fastPathSupported()) {
+      expect(reader.activeDriver).toBe('bun' in process.versions ? 'bun-sqlite' : 'node-sqlite');
+    } else {
+      expect(reader.activeDriver).toBe('cli');
+    }
     reader.dispose();
   });
 

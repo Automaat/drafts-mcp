@@ -109,12 +109,13 @@ export class SqliteReader {
 function loadDriver(): Driver | null {
   if (typeof process === 'undefined') return null;
 
-  // Bun ships bun:sqlite and does not implement node:sqlite. require() resolves
-  // the builtin synchronously inside the compiled binary.
+  // Bun ships bun:sqlite and does not implement node:sqlite. Resolve the builtin
+  // synchronously (works inside the compiled binary) without assuming any single
+  // mechanism: Bun's own import.meta.require, else node:module.createRequire.
   if (process.versions && 'bun' in process.versions) {
     try {
-      const { createRequire } = process.getBuiltinModule('node:module');
-      const bunRequire = createRequire(import.meta.url);
+      const bunRequire = resolveBunRequire();
+      if (!bunRequire) return null;
       const { Database } = bunRequire('bun:sqlite') as {
         Database: new (path: string, opts: { readonly: boolean }) => InProcessDb;
       };
@@ -137,6 +138,20 @@ function loadDriver(): Driver | null {
     }
   } catch {
     // getBuiltinModule throws when the builtin is unavailable on this runtime
+  }
+  return null;
+}
+
+// A synchronous require() usable under Bun, or null if neither mechanism is
+// available (so the caller falls back to the CLI rather than crashing).
+function resolveBunRequire(): ((id: string) => unknown) | null {
+  const meta = import.meta as unknown as { require?: (id: string) => unknown };
+  if (typeof meta.require === 'function') return meta.require;
+  if (typeof process.getBuiltinModule === 'function') {
+    const mod = process.getBuiltinModule('node:module') as
+      | { createRequire?: (path: string) => (id: string) => unknown }
+      | undefined;
+    if (mod?.createRequire) return mod.createRequire(import.meta.url);
   }
   return null;
 }

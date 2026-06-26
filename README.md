@@ -170,7 +170,7 @@ Then point your client at the built entry point:
 ```
 
 - **Reads** (`get_*`, `search_drafts_db`) query the local Drafts SQLite database in-process (`node:sqlite`, or `bun:sqlite` in the standalone binary) over a persistent read-only connection — works even when Drafts is closed. Falls back to the system `sqlite3` CLI on older Node.
-- **Writes** (`create`, `append`, `prepend`, `open`, `run_action`, `search_drafts`) use Drafts' `x-callback-url` scheme. A short-lived Express callback server on a random localhost port captures the response. Retries 3× with exponential backoff.
+- **Writes** (`create`, `append`, `prepend`, `open`, `run_action`, `search_drafts`) hand a `drafts://x-callback-url` to the macOS `open` command **fire-and-forget** — no `x-success`/`x-error`/`x-cancel` callbacks and no localhost server, so Drafts opens nothing. `create_draft` reads the new draft's UUID back from the local database. Each write retries 3× with a fixed delay.
 
 ## CLI reference
 
@@ -185,8 +185,7 @@ drafts-mcp --version    Print version
 Everything runs locally on your Mac:
 
 - **Reads** query the local Drafts SQLite database directly — no app, network, or cloud involved.
-- **Writes** hand a `drafts://x-callback-url` to the macOS `open` command; Drafts then calls back into a short-lived HTTP server the MCP server starts on a random port.
-- That callback server lives only while the MCP server is running and only completes requests keyed by an unguessable `randomUUID()` it generated itself. It holds no credentials and carries nothing beyond Drafts' own callback payload.
+- **Writes** hand a `drafts://x-callback-url` to the macOS `open` command fire-and-forget. There is no callback server and no open network port; nothing listens for a response.
 - No auth tokens, no telemetry, no remote endpoints — your drafts never leave your machine.
 
 ## Requirements
