@@ -1,6 +1,6 @@
 [tools]
 node = "24"
-bun = "1.4.0"
+bun = "1.4.2"
 
 [tasks.install]
 run = "npm install"
